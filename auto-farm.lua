@@ -1,5 +1,5 @@
 -- ====================================================================
--- IRON SOUL - ULTIMATE REWRITTEN FARM (V14 GABUNGAN + AUTO DOOR & PORTAL)
+-- IRON SOUL - ULTIMATE REWRITTEN FARM (V20 MASTER + REPLAY TOGGLE BUTTON)
 -- ====================================================================
 
 local Players = game:GetService("Players")
@@ -7,6 +7,7 @@ local LocalPlayer = Players.LocalPlayer
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local VirtualUser = game:GetService("VirtualUser")
 local RunService = game:GetService("RunService")
+local GuiService = game:GetService("GuiService")
 
 -- KONTROL SCRIPT MASTER
 _G.AutoFarm = true          
@@ -17,6 +18,8 @@ _G.KecepatanPutar = 4.0
 _G.UndergroundMode = true   
 _G.KillAuraRadius = 45      
 _G.AutoProgressStage = true  
+_G.AutoReplay = true         -- Mengontrol status replay otomatis secara global
+_G.SemiGodMode = true        
 
 local SudutPutar = 0
 local Target = nil
@@ -29,7 +32,7 @@ local LastPortalCheck = 0
 local IsEnteringPortal = false 
 local PortalCooldown = false 
 
-local MaxPortalDistance = 250 -- Diperluas agar jangkauan deteksi pintu/portal lebih jauh
+local MaxPortalDistance = 250 
 
 -- 1. FUNGSI ANTI-AFK
 if not _G.AntiAFK_Loaded then
@@ -40,7 +43,7 @@ if not _G.AntiAFK_Loaded then
     end)
 end
 
--- PLATFORM ANTI-JATUH (OPTIMIZED)
+-- PLATFORM ANTI-JATUH
 local PlatformPart = Instance.new("Part")
 PlatformPart.Name = "AntiFallPlatform"
 PlatformPart.Size = Vector3.new(10, 1, 10)
@@ -69,7 +72,31 @@ local function PressKey(key)
     end)
 end
 
--- AUTO SKILL DENGAN COOLDOWN (Q=1s, E=3s, R=5s)
+-- FUNGSI HIT TOMBOL REPLAY VIA GUI SELECTION
+local function EksekusiKlikReplay(tombol)
+    if not tombol then return end
+    pcall(function()
+        if getconnections then
+            for _, conn in pairs(getconnections(tombol.MouseButton1Click)) do conn:Fire() end
+            for _, conn in pairs(getconnections(tombol.Activated)) do conn:Fire() end
+        end
+    end)
+    pcall(function()
+        local cx = tombol.AbsolutePosition.X + (tombol.AbsoluteSize.X / 2)
+        local cy = tombol.AbsolutePosition.Y + (tombol.AbsoluteSize.Y / 2) + 36
+        
+        GuiService.SelectedObject = tombol
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
+        task.wait(0.02)
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
+        GuiService.SelectedObject = nil
+        
+        VirtualUser:CaptureController()
+        VirtualUser:ClickButton1(Vector2.new(cx, cy))
+    end)
+end
+
+-- AUTO SKILL DENGAN COOLDOWN
 local LastUsed = {Q = 0, E = 0, R = 0}
 local Cooldowns = {Q = 1, E = 3, R = 5} 
 
@@ -78,21 +105,9 @@ task.spawn(function()
         task.wait(0.1)
         if _G.AutoFarm and _G.AutoSkill and LocalPlayer.Character and Target then
             local CurrentTime = os.clock()
-            
-            if (CurrentTime - LastUsed.Q) >= Cooldowns.Q then
-                PressKey("Q")
-                LastUsed.Q = CurrentTime
-            end
-            
-            if (CurrentTime - LastUsed.E) >= Cooldowns.E then
-                PressKey("E")
-                LastUsed.E = CurrentTime
-            end
-            
-            if (CurrentTime - LastUsed.R) >= Cooldowns.R then
-                PressKey("R")
-                LastUsed.R = CurrentTime
-            end
+            if (CurrentTime - LastUsed.Q) >= Cooldowns.Q then PressKey("Q") LastUsed.Q = CurrentTime end
+            if (CurrentTime - LastUsed.E) >= Cooldowns.E then PressKey("E") LastUsed.E = CurrentTime end
+            if (CurrentTime - LastUsed.R) >= Cooldowns.R then PressKey("R") LastUsed.R = CurrentTime end
         end
     end
 end)
@@ -107,6 +122,21 @@ RunService.Heartbeat:Connect(function()
             if Hum then
                 Hum:ChangeState(Enum.HumanoidStateType.Jumping)
                 Hum.Jump = true 
+            end
+        end
+    end
+end)
+
+-- STATE-GLITCH IMMUNITY LOOP
+task.spawn(function()
+    while true do
+        task.wait(0.2)
+        if _G.SemiGodMode and LocalPlayer.Character then
+            local Hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+            if Hum then
+                Hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+                Hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+                Hum:SetStateEnabled(Enum.HumanoidStateType.Dead, false)
             end
         end
     end
@@ -159,18 +189,17 @@ local function GetClosestTargetZeroSpike()
     return NewTarget, false
 end
 
--- DETEKSI OTOMATIS DAN PEMBUKA PINTU / STAGE PORTAL (OPTIMIZED RADAR)
+-- DETEKSI OTOMATIS DAN PEMBUKA PINTU / STAGE PORTAL
 local function TeleportToNextStagePortal()
     if PortalCooldown or not _G.AutoProgressStage then return end 
     local Character = LocalPlayer.Character
     local MyRoot = Character and Character:FindFirstChild("HumanoidRootPart")
-    local MyHumanoid = Character and Character:FindFirstChildOfClass("Humanoid")
+    local MyHumanoid = Character and Character:FindFirstChild("Humanoid")
     if not MyRoot or not MyHumanoid or IsEnteringPortal then return end
 
     local BestPortalPart = nil
     local HighestScore = 0
     
-    -- Menyisir objek di workspace untuk mencari target pintu/portal secara agresif
     for _, obj in pairs(workspace:GetDescendants()) do
         if obj:IsA("BasePart") or obj:IsA("MeshPart") then
             local DistanceToPortal = (MyRoot.Position - obj.Position).Magnitude
@@ -178,14 +207,12 @@ local function TeleportToNextStagePortal()
                 local CurrentScore = 0
                 local LowerName = string.lower(obj.Name)
                 
-                -- Sistem pembobotan deteksi kata kunci pintu/portal/gate/exit
                 if string.find(LowerName, "portal") or string.find(LowerName, "gate") or string.find(LowerName, "door") or string.find(LowerName, "pintu") then
                     CurrentScore = CurrentScore + 6
                 elseif string.find(LowerName, "next") or string.find(LowerName, "exit") or string.find(LowerName, "finish") or string.find(LowerName, "teleport") then
                     CurrentScore = CurrentScore + 4
                 end
                 
-                -- Cek trigger mekanis Roblox (TouchTransmitter / ProximityPrompt)
                 if obj:FindFirstChildOfClass("TouchTransmitter") or obj:FindFirstChildOfClass("ProximityPrompt") then 
                     CurrentScore = CurrentScore + 3 
                 end
@@ -200,15 +227,11 @@ local function TeleportToNextStagePortal()
         end
     end
 
-    -- Eksekusi Teleportasi Masuk Portal / Buka Pintu jika kecocokan tinggi
     if BestPortalPart and HighestScore >= 3 then
         IsEnteringPortal = true
         PortalCooldown = true 
-        
-        -- Berpindah tepat di depan koordinat pintu/portal
         MyRoot.CFrame = CFrame.new(BestPortalPart.Position)
         
-        -- Simulasi eksekusi aksi (Menekan Shift & E untuk memicu pembukaan Proximity/Prompt pintu game)
         VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
         VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
         task.wait(0.05)
@@ -220,9 +243,49 @@ local function TeleportToNextStagePortal()
         IsEnteringPortal = false
         
         task.spawn(function()
-            task.wait(3.0) -- Cooldown aman sebelum scan portal berikutnya
+            task.wait(3.0) 
             PortalCooldown = false
         end)
+    end
+end
+
+-- INTERCEPTOR SCAN REPLAY DEEP AREA
+local function ScanAndExecuteReplay()
+    if not _G.AutoReplay then return end
+    local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not PlayerGui then return end
+    
+    local ReplayButton = nil
+    local SemuaGui = PlayerGui:GetDescendants()
+    
+    for i = 1, #SemuaGui do
+        local obj = SemuaGui[i]
+        
+        if obj:IsA("TextLabel") then
+            local textLower = string.lower(obj.Text)
+            if string.find(textLower, "play") and string.find(textLower, "again") then
+                local parentButton = obj:FindFirstAncestorWhichIsA("TextButton") or obj:FindFirstAncestorWhichIsA("ImageButton") or obj.Parent
+                if parentButton and parentButton.AbsolutePosition.Y > 0 then
+                    ReplayButton = parentButton
+                    break
+                end
+            end
+        elseif obj:IsA("TextButton") or obj:IsA("ImageButton") then
+            local nameLower = string.lower(obj.Name)
+            if string.find(nameLower, "replay") or string.find(nameLower, "again") or string.find(nameLower, "restart") then
+                if obj.Visible and obj.AbsolutePosition.Y > 0 then
+                    ReplayButton = obj
+                    break
+                end
+            end
+        end
+    end
+    
+    if ReplayButton then
+        print("[Auto Replay] Target Tombol Terkunci. Mengeksekusi Re-Run...")
+        task.wait(1.0)
+        EksekusiKlikReplay(ReplayButton)
+        task.wait(4.0) 
     end
 end
 
@@ -233,10 +296,14 @@ task.spawn(function()
             if Success and NewTarget then
                 Target = NewTarget
                 IsEgg = IsAnEgg
-                task.wait(0.5) -- Jeda scan lebih responsif
+                task.wait(0.5) 
             else
                 Target = nil
-                -- Jika monster habis, langsung pacu fungsi pencari pintu/portal otomatis
+                
+                if _G.AutoReplay then
+                    pcall(ScanAndExecuteReplay)
+                end
+                
                 if _G.AutoProgressStage and not IsEnteringPortal and not PortalCooldown then
                     local CurrentTime = os.clock()
                     if (CurrentTime - LastPortalCheck) >= 1.5 then 
@@ -308,20 +375,33 @@ end)
 RunService.Stepped:Connect(function()
     if _G.AutoFarm and LocalPlayer.Character then
         for _, part in pairs(LocalPlayer.Character:GetChildren()) do
-            if part:IsA("BasePart") then part.CanCollide = false end
+            if part:IsA("BasePart") then 
+                part.CanCollide = false 
+                if _G.SemiGodMode then
+                    local transmitter = part:FindFirstChildOfClass("TouchTransmitter")
+                    if transmitter then transmitter:Destroy() end
+                end
+            end
         end
     end
 end)
 
--- GUI MENU DUAL BUTTON (TETAP SAMA SEPERTI ASLINYA)
+-- ====================================================================
+-- PERBAIKAN & PENAMBAHAN MENU DUAL BUTTON + TOGGLE REPLAY BUTTON
+-- ====================================================================
 local ScreenGui = Instance.new("ScreenGui")
 local MasterButton = Instance.new("TextButton")
 local ModeButton = Instance.new("TextButton")
+local ReplayButtonToggle = Instance.new("TextButton") -- [BARU] Tombol Replay Toggle
+
 local OldGui = LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("IronSoulDualMenu")
 if OldGui then OldGui:Destroy() end
+
 ScreenGui.Name = "IronSoulDualMenu"
 ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 ScreenGui.ResetOnSpawn = false
+
+-- 1. Tombol Utama (SCRIPT ON/OFF)
 MasterButton.Name = "MasterButton"
 MasterButton.Parent = ScreenGui
 MasterButton.BackgroundColor3 = Color3.fromRGB(0, 170, 0) 
@@ -332,6 +412,8 @@ MasterButton.Text = "SCRIPT: ON"
 MasterButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 MasterButton.TextSize = 16
 MasterButton.BorderSizePixel = 2
+
+-- 2. Tombol Mode (UNDERGROUND / ABOVE)
 ModeButton.Name = "ModeButton"
 ModeButton.Parent = ScreenGui
 ModeButton.BackgroundColor3 = Color3.fromRGB(0, 85, 255) 
@@ -343,6 +425,19 @@ ModeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 ModeButton.TextSize = 14
 ModeButton.BorderSizePixel = 2
 
+-- 3. [BARU] Tombol Kontrol Replay (AUTO REPLAY: YES / NO)
+ReplayButtonToggle.Name = "ReplayButtonToggle"
+ReplayButtonToggle.Parent = ScreenGui
+ReplayButtonToggle.BackgroundColor3 = Color3.fromRGB(0, 150, 75) -- Hijau gelap bawaan aktif
+ReplayButtonToggle.Position = UDim2.new(0.05, 0, 0.34, 0) -- Berada tepat di bawah tombol mode        
+ReplayButtonToggle.Size = UDim2.new(0, 160, 0, 40)               
+ReplayButtonToggle.Font = Enum.Font.SourceSansBold
+ReplayButtonToggle.Text = "AUTO REPLAY: YES"
+ReplayButtonToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+ReplayButtonToggle.TextSize = 14
+ReplayButtonToggle.BorderSizePixel = 2
+
+-- KONEKSI EVENT INTERAKSI KLIK UI
 MasterButton.MouseButton1Click:Connect(function()
     local Character = LocalPlayer.Character
     local MyRoot = Character and Character:FindFirstChild("HumanoidRootPart")
@@ -372,5 +467,16 @@ ModeButton.MouseButton1Click:Connect(function()
         _G.UndergroundMode = true
         ModeButton.Text = "MODE: UNDERGROUND"
         ModeButton.BackgroundColor3 = Color3.fromRGB(0, 85, 255) 
+    end
+end)
+
+ReplayButtonToggle.MouseButton1Click:Connect(function()
+    _G.AutoReplay = not _G.AutoReplay
+    if _G.AutoReplay then
+        ReplayButtonToggle.Text = "AUTO REPLAY: YES"
+        ReplayButtonToggle.BackgroundColor3 = Color3.fromRGB(0, 150, 75) -- Ganti hijau
+    else
+        ReplayButtonToggle.Text = "AUTO REPLAY: NO"
+        ReplayButtonToggle.BackgroundColor3 = Color3.fromRGB(180, 40, 40) -- Ganti merah
     end
 end)
