@@ -238,11 +238,11 @@ local function TeleportToNextStagePortal()
                 local IsReloadPortal = string.find(FullName, "replay") or string.find(FullName, "restart") or string.find(FullName, "return") or string.find(FullName, "lobby") or string.find(FullName, "leave") or string.find(FullName, "reload") or string.find(FullName, "menu")
                 
                 if not IsReloadPortal then
-                    if string.find(FullName, "checkpoint") or string.find(FullName, "stage") or string.find(FullName, "next") then
+                    if string.find(LowerName, "checkpoint") or string.find(LowerName, "stage") or string.find(LowerName, "next") then
                         CurrentScore = CurrentScore + 8
-                    elseif string.find(FullName, "portal") or string.find(FullName, "gate") or string.find(FullName, "door") or string.find(FullName, "pintu") then
+                    elseif string.find(LowerName, "portal") or string.find(LowerName, "gate") or string.find(LowerName, "door") or string.find(LowerName, "pintu") then
                         CurrentScore = CurrentScore + 6
-                    elseif string.find(FullName, "finish") or string.find(FullName, "teleport") or string.find(FullName, "spawn") then
+                    elseif string.find(LowerName, "finish") or string.find(LowerName, "teleport") or string.find(LowerName, "spawn") then
                         CurrentScore = CurrentScore + 4
                     end
 
@@ -262,10 +262,7 @@ local function TeleportToNextStagePortal()
         task.wait(1.0)
         if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
             local CurrentRoot = LocalPlayer.Character.HumanoidRootPart
-            local GroundRay = workspace:Raycast(BestPortalPart.Position + Vector3.new(0, 20, 0), Vector3.new(0, -80, 0))
-            local GroundPosition = GroundRay and GroundRay.Position or BestPortalPart.Position
-            CurrentRoot.CFrame = CFrame.new(GroundPosition + Vector3.new(0, 3, 0))
-            MyHumanoid:ChangeState(Enum.HumanoidStateType.Landed)
+            CurrentRoot.CFrame = CFrame.new(BestPortalPart.Position)
             VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
             VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.E, false, game)
             task.wait(0.05)
