@@ -31,6 +31,7 @@ local JumpInterval = 0.1
 local LastPortalCheck = 0
 local IsEnteringPortal = false 
 local PortalCooldown = false 
+local LastEnemySeen = os.clock()
 
 local MaxPortalDistance = 250 
 
@@ -150,7 +151,7 @@ local function GetClosestTargetZeroSpike()
 
     local NewTarget = nil
     local ClosestDistance = math.huge
-    local SemuaObjek = workspace:GetChildren()
+    local SemuaObjek = workspace:GetDescendants()
 
     for i = 1, #SemuaObjek do
         local obj = SemuaObjek[i]
@@ -163,24 +164,6 @@ local function GetClosestTargetZeroSpike()
                     if Distance < ClosestDistance then
                         ClosestDistance = Distance
                         NewTarget = EnemyRoot
-                    end
-                end
-            end
-        elseif obj:IsA("Folder") then
-            local IsiFolder = obj:GetChildren()
-            for j = 1, #IsiFolder do
-                local subObj = IsiFolder[j]
-                if subObj:IsA("Model") and subObj ~= Character then
-                    local Humanoid = subObj:FindFirstChildOfClass("Humanoid")
-                    if Humanoid and Humanoid.Health > 0 then
-                        local EnemyRoot = subObj:FindFirstChild("HumanoidRootPart") or subObj:FindFirstChild("PrimaryPart")
-                        if EnemyRoot then
-                            local Distance = (MyRoot.Position - EnemyRoot.Position).Magnitude
-                            if Distance < ClosestDistance then
-                                ClosestDistance = Distance
-                                NewTarget = EnemyRoot
-                            end
-                        end
                     end
                 end
             end
@@ -250,6 +233,81 @@ local function TeleportToNextStagePortal()
 end
 
 -- INTERCEPTOR SCAN REPLAY DEEP AREA
+local function IsGuiVisible(obj)
+    if not obj or not obj.Parent then return false end
+    if obj:IsA("GuiObject") and (not obj.Visible or obj.AbsolutePosition.Y <= 0) then return false end
+    local parent = obj.Parent
+    while parent and parent ~= game do
+        if parent:IsA("GuiObject") and not parent.Visible then return false end
+        parent = parent.Parent
+    end
+    return true
+end
+
+local function HasVictoryUi(guiObjects)
+    for i = 1, #guiObjects do
+        local obj = guiObjects[i]
+        if obj:IsA("TextLabel") or obj:IsA("TextButton") then
+            if IsGuiVisible(obj) and string.find(string.lower(obj.Text), "victory") then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function FindVisibleButtonByText(guiObjects, textPattern)
+    for i = 1, #guiObjects do
+        local obj = guiObjects[i]
+        if obj:IsA("TextButton") then
+            local nameLower = string.lower(obj.Name)
+            local textLower = string.lower(obj.Text)
+            if IsGuiVisible(obj) and (string.find(nameLower, textPattern) or string.find(textLower, textPattern)) then
+                return obj
+            end
+        elseif obj:IsA("ImageButton") then
+            local nameLower = string.lower(obj.Name)
+            if IsGuiVisible(obj) and string.find(nameLower, textPattern) then
+                return obj
+            end
+        elseif obj:IsA("TextLabel") then
+            local textLower = string.lower(obj.Text)
+            if IsGuiVisible(obj) and string.find(textLower, textPattern) then
+                local parentButton = obj:FindFirstAncestorWhichIsA("TextButton") or obj:FindFirstAncestorWhichIsA("ImageButton") or obj.Parent
+                if IsGuiVisible(parentButton) then return parentButton end
+            end
+        end
+    end
+    return nil
+end
+
+local function HasVisibleText(guiObjects, textPattern)
+    for i = 1, #guiObjects do
+        local obj = guiObjects[i]
+        if obj:IsA("TextLabel") or obj:IsA("TextButton") then
+            if IsGuiVisible(obj) and string.find(string.lower(obj.Text), textPattern) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function ScanAndHandleDeath()
+    local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not PlayerGui then return end
+    local SemuaGui = PlayerGui:GetDescendants()
+    if not HasVisibleText(SemuaGui, "you died") then return end
+
+    local GiveUpButton = FindVisibleButtonByText(SemuaGui, "give up")
+    if GiveUpButton then
+        print("[Auto Death] You died detected. Clicking Give up...")
+        Target = nil
+        EksekusiKlikReplay(GiveUpButton)
+        task.wait(5.0)
+    end
+end
+
 local function ScanAndExecuteReplay()
     if not _G.AutoReplay then return end
     local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
@@ -257,6 +315,7 @@ local function ScanAndExecuteReplay()
     
     local ReplayButton = nil
     local SemuaGui = PlayerGui:GetDescendants()
+    if not HasVictoryUi(SemuaGui) then return end
     
     for i = 1, #SemuaGui do
         local obj = SemuaGui[i]
@@ -265,7 +324,7 @@ local function ScanAndExecuteReplay()
             local textLower = string.lower(obj.Text)
             if string.find(textLower, "play") and string.find(textLower, "again") then
                 local parentButton = obj:FindFirstAncestorWhichIsA("TextButton") or obj:FindFirstAncestorWhichIsA("ImageButton") or obj.Parent
-                if parentButton and parentButton.AbsolutePosition.Y > 0 then
+                if IsGuiVisible(parentButton) then
                     ReplayButton = parentButton
                     break
                 end
@@ -273,7 +332,7 @@ local function ScanAndExecuteReplay()
         elseif obj:IsA("TextButton") or obj:IsA("ImageButton") then
             local nameLower = string.lower(obj.Name)
             if string.find(nameLower, "replay") or string.find(nameLower, "again") or string.find(nameLower, "restart") then
-                if obj.Visible and obj.AbsolutePosition.Y > 0 then
+                if IsGuiVisible(obj) then
                     ReplayButton = obj
                     break
                 end
@@ -282,10 +341,15 @@ local function ScanAndExecuteReplay()
     end
     
     if ReplayButton then
-        print("[Auto Replay] Target Tombol Terkunci. Mengeksekusi Re-Run...")
-        task.wait(1.0)
-        EksekusiKlikReplay(ReplayButton)
-        task.wait(4.0) 
+        print("[Auto Replay] Reward settle delay sebelum re-run...")
+        Target = nil
+        task.wait(5.0)
+
+        if HasVictoryUi(PlayerGui:GetDescendants()) and IsGuiVisible(ReplayButton) then
+            print("[Auto Replay] Target Tombol Terkunci. Mengeksekusi Re-Run...")
+            EksekusiKlikReplay(ReplayButton)
+            task.wait(8.0)
+        end
     end
 end
 
@@ -294,11 +358,13 @@ task.spawn(function()
         if _G.AutoFarm then
             local Success, NewTarget, IsAnEgg = pcall(GetClosestTargetZeroSpike)
             if Success and NewTarget then
+                LastEnemySeen = os.clock()
                 Target = NewTarget
                 IsEgg = IsAnEgg
                 task.wait(0.5) 
             else
                 Target = nil
+                pcall(ScanAndHandleDeath)
                 
                 if _G.AutoReplay then
                     pcall(ScanAndExecuteReplay)
@@ -306,7 +372,7 @@ task.spawn(function()
                 
                 if _G.AutoProgressStage and not IsEnteringPortal and not PortalCooldown then
                     local CurrentTime = os.clock()
-                    if (CurrentTime - LastPortalCheck) >= 1.5 then 
+                    if (CurrentTime - LastEnemySeen) >= 4.0 and (CurrentTime - LastPortalCheck) >= 1.5 then 
                         LastPortalCheck = CurrentTime
                         pcall(TeleportToNextStagePortal)
                     end

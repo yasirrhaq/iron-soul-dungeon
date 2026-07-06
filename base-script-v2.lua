@@ -23,16 +23,33 @@ _G.SemiGodMode = true
 
 local SudutPutar = 0
 local Target = nil
+local TargetKind = nil
 local IsEgg = false
 local IsExtractingEgg = false
+local LastTriggeredEgg = nil
+local EggLockEnd = 0
+local ChestDestroyedCount = 0
+local EggTriggeredCount = 0
+local CountedBreakables = {}
+local CountedEggTriggers = {}
+local StatsLabel = nil
 
 local LastJumpTime = 0
 local JumpInterval = 0.1 
 local LastPortalCheck = 0
 local IsEnteringPortal = false 
 local PortalCooldown = false 
+local LastEnemySeen = os.clock()
 
 local MaxPortalDistance = 250 
+local RaycastParamsInstance = RaycastParams.new()
+RaycastParamsInstance.FilterType = Enum.RaycastFilterType.Exclude
+
+local function UpdateStatsLabel()
+    if StatsLabel then
+        StatsLabel.Text = "CHEST DESTROYED: " .. ChestDestroyedCount .. "\nEGG TRIGGERED: " .. EggTriggeredCount
+    end
+end
 
 -- 1. FUNGSI ANTI-AFK
 if not _G.AntiAFK_Loaded then
@@ -72,6 +89,29 @@ local function PressKey(key)
     end)
 end
 
+local function HoldKey(key, seconds)
+    pcall(function()
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode[key], false, game)
+    end)
+    task.wait(seconds)
+    pcall(function()
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode[key], false, game)
+    end)
+end
+
+local function TriggerPrompt(prompt)
+    if not prompt then return false end
+    if fireproximityprompt then
+        fireproximityprompt(prompt)
+        return true
+    end
+
+    prompt:InputHoldBegin()
+    task.wait((prompt.HoldDuration or 3) + 0.1)
+    prompt:InputHoldEnd()
+    return true
+end
+
 -- FUNGSI HIT TOMBOL REPLAY VIA GUI SELECTION
 local function EksekusiKlikReplay(tombol)
     if not tombol then return end
@@ -103,7 +143,7 @@ local Cooldowns = {Q = 1, E = 3, R = 5}
 task.spawn(function()
     while true do
         task.wait(0.1)
-        if _G.AutoFarm and _G.AutoSkill and LocalPlayer.Character and Target then
+        if _G.AutoFarm and _G.AutoSkill and LocalPlayer.Character and Target and not IsExtractingEgg then
             local CurrentTime = os.clock()
             if (CurrentTime - LastUsed.Q) >= Cooldowns.Q then PressKey("Q") LastUsed.Q = CurrentTime end
             if (CurrentTime - LastUsed.E) >= Cooldowns.E then PressKey("E") LastUsed.E = CurrentTime end
@@ -143,6 +183,93 @@ task.spawn(function()
 end)
 
 -- 3. SCANNING TARGET INTERNAL
+local function TrackBreakableTarget(target, kind)
+    if kind ~= "breakable" or not target then return end
+    local trackTarget = target:FindFirstAncestorWhichIsA("Model") or target
+    if CountedBreakables[trackTarget] then return end
+    CountedBreakables[trackTarget] = true
+    local counted = false
+    trackTarget.Destroying:Connect(function()
+        if not counted then
+            counted = true
+            ChestDestroyedCount = ChestDestroyedCount + 1
+            UpdateStatsLabel()
+        end
+    end)
+end
+
+local function TrackEggTarget(target, kind)
+    if kind ~= "egg" or not target then return end
+    local eggModel = target:FindFirstAncestor("DragonEgg") or target:FindFirstAncestorWhichIsA("Model")
+    if not eggModel or CountedEggTriggers[eggModel] then return end
+    CountedEggTriggers[eggModel] = true
+    eggModel:GetAttributeChangedSignal("Active"):Connect(function()
+        if eggModel:GetAttribute("Active") then
+            EggTriggeredCount = EggTriggeredCount + 1
+            UpdateStatsLabel()
+        end
+    end)
+    if eggModel:GetAttribute("Active") then
+        EggTriggeredCount = EggTriggeredCount + 1
+        UpdateStatsLabel()
+    end
+end
+
+local function GetEggModel(target)
+    return target and (target:FindFirstAncestor("DragonEgg") or target:FindFirstAncestorWhichIsA("Model")) or nil
+end
+
+local function GetEggPrompt(target)
+    local eggModel = GetEggModel(target)
+    return eggModel and eggModel:FindFirstChildWhichIsA("ProximityPrompt", true) or nil
+end
+
+local function GetTargetPart(obj)
+    if obj:IsA("BasePart") then return obj end
+    if obj:IsA("Model") then return obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart", true) end
+    return obj:FindFirstChildWhichIsA("BasePart", true)
+end
+
+local function ScanWorldTarget(myRoot)
+    local DragonEgg = workspace:FindFirstChild("DragonEgg")
+    if DragonEgg and not DragonEgg:GetAttribute("Broken") then
+        local part = GetTargetPart(DragonEgg)
+        if part then return part, "egg" end
+    end
+
+    local bestTarget = nil
+    local bestDistance = math.huge
+    local children = workspace:GetChildren()
+    for i = 1, #children do
+        local obj = children[i]
+        local part = string.match(obj.Name, "^Chest") and GetTargetPart(obj) or nil
+        if part then
+            local distance = (myRoot.Position - part.Position).Magnitude
+            if distance < bestDistance then
+                bestDistance = distance
+                bestTarget = part
+            end
+        end
+    end
+    return bestTarget, bestTarget and "breakable" or nil
+end
+
+local function MoveToEggGround(target)
+    local Character = LocalPlayer.Character
+    local MyRoot = Character and Character:FindFirstChild("HumanoidRootPart")
+    local MyHumanoid = Character and Character:FindFirstChildOfClass("Humanoid")
+    if not MyRoot or not MyHumanoid then return false end
+
+    RaycastParamsInstance.FilterDescendantsInstances = {target.Parent, Character}
+    local GroundRay = workspace:Raycast(target.Position + Vector3.new(0, 8, 0), Vector3.new(0, -35, 0), RaycastParamsInstance)
+    local GroundPos = GroundRay and GroundRay.Position or target.Position
+    MyRoot.CFrame = CFrame.new(GroundPos + Vector3.new(0, 3, 0), target.Position)
+    MyRoot.Velocity = Vector3.new(0, 0, 0)
+    MyHumanoid:ChangeState(Enum.HumanoidStateType.Running)
+    task.wait(0.35)
+    return true
+end
+
 local function GetClosestTargetZeroSpike()
     local Character = LocalPlayer.Character
     local MyRoot = Character and Character:FindFirstChild("HumanoidRootPart")
@@ -150,7 +277,7 @@ local function GetClosestTargetZeroSpike()
 
     local NewTarget = nil
     local ClosestDistance = math.huge
-    local SemuaObjek = workspace:GetChildren()
+    local SemuaObjek = workspace:GetDescendants()
 
     for i = 1, #SemuaObjek do
         local obj = SemuaObjek[i]
@@ -166,27 +293,39 @@ local function GetClosestTargetZeroSpike()
                     end
                 end
             end
-        elseif obj:IsA("Folder") then
-            local IsiFolder = obj:GetChildren()
-            for j = 1, #IsiFolder do
-                local subObj = IsiFolder[j]
-                if subObj:IsA("Model") and subObj ~= Character then
-                    local Humanoid = subObj:FindFirstChildOfClass("Humanoid")
-                    if Humanoid and Humanoid.Health > 0 then
-                        local EnemyRoot = subObj:FindFirstChild("HumanoidRootPart") or subObj:FindFirstChild("PrimaryPart")
-                        if EnemyRoot then
-                            local Distance = (MyRoot.Position - EnemyRoot.Position).Magnitude
-                            if Distance < ClosestDistance then
-                                ClosestDistance = Distance
-                                NewTarget = EnemyRoot
-                            end
-                        end
-                    end
-                end
-            end
         end
     end
-    return NewTarget, false
+    if NewTarget then return NewTarget, "enemy" end
+
+    return ScanWorldTarget(MyRoot)
+end
+
+local function TriggerEggIfNeeded(target, kind)
+    if kind ~= "egg" or IsExtractingEgg then return end
+    if LastTriggeredEgg == target and os.clock() < EggLockEnd then return end
+    IsExtractingEgg = true
+    if not MoveToEggGround(target) then
+        IsExtractingEgg = false
+        return
+    end
+    local Character = LocalPlayer.Character
+    local MyRoot = Character and Character:FindFirstChild("HumanoidRootPart")
+    if not MyRoot or (MyRoot.Position - target.Position).Magnitude > 24 then
+        IsExtractingEgg = false
+        return
+    end
+
+    LastTriggeredEgg = target
+    local Prompt = GetEggPrompt(target)
+    if Prompt then
+        print("[Egg] Triggering ProximityPrompt...")
+        TriggerPrompt(Prompt)
+    else
+        print("[Egg] Prompt not found. Holding F 3s fallback...")
+        HoldKey("F", 3.0)
+    end
+    IsExtractingEgg = false
+    EggLockEnd = os.clock() + 12.0
 end
 
 -- DETEKSI OTOMATIS DAN PEMBUKA PINTU / STAGE PORTAL
@@ -250,6 +389,81 @@ local function TeleportToNextStagePortal()
 end
 
 -- INTERCEPTOR SCAN REPLAY DEEP AREA
+local function IsGuiVisible(obj)
+    if not obj or not obj.Parent then return false end
+    if obj:IsA("GuiObject") and (not obj.Visible or obj.AbsolutePosition.Y <= 0) then return false end
+    local parent = obj.Parent
+    while parent and parent ~= game do
+        if parent:IsA("GuiObject") and not parent.Visible then return false end
+        parent = parent.Parent
+    end
+    return true
+end
+
+local function HasVictoryUi(guiObjects)
+    for i = 1, #guiObjects do
+        local obj = guiObjects[i]
+        if obj:IsA("TextLabel") or obj:IsA("TextButton") then
+            if IsGuiVisible(obj) and string.find(string.lower(obj.Text), "victory") then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function FindVisibleButtonByText(guiObjects, textPattern)
+    for i = 1, #guiObjects do
+        local obj = guiObjects[i]
+        if obj:IsA("TextButton") then
+            local nameLower = string.lower(obj.Name)
+            local textLower = string.lower(obj.Text)
+            if IsGuiVisible(obj) and (string.find(nameLower, textPattern) or string.find(textLower, textPattern)) then
+                return obj
+            end
+        elseif obj:IsA("ImageButton") then
+            local nameLower = string.lower(obj.Name)
+            if IsGuiVisible(obj) and string.find(nameLower, textPattern) then
+                return obj
+            end
+        elseif obj:IsA("TextLabel") then
+            local textLower = string.lower(obj.Text)
+            if IsGuiVisible(obj) and string.find(textLower, textPattern) then
+                local parentButton = obj:FindFirstAncestorWhichIsA("TextButton") or obj:FindFirstAncestorWhichIsA("ImageButton") or obj.Parent
+                if IsGuiVisible(parentButton) then return parentButton end
+            end
+        end
+    end
+    return nil
+end
+
+local function HasVisibleText(guiObjects, textPattern)
+    for i = 1, #guiObjects do
+        local obj = guiObjects[i]
+        if obj:IsA("TextLabel") or obj:IsA("TextButton") then
+            if IsGuiVisible(obj) and string.find(string.lower(obj.Text), textPattern) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function ScanAndHandleDeath()
+    local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not PlayerGui then return end
+    local SemuaGui = PlayerGui:GetDescendants()
+    if not HasVisibleText(SemuaGui, "you died") then return end
+
+    local GiveUpButton = FindVisibleButtonByText(SemuaGui, "give up")
+    if GiveUpButton then
+        print("[Auto Death] You died detected. Clicking Give up...")
+        Target = nil
+        EksekusiKlikReplay(GiveUpButton)
+        task.wait(5.0)
+    end
+end
+
 local function ScanAndExecuteReplay()
     if not _G.AutoReplay then return end
     local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
@@ -257,6 +471,7 @@ local function ScanAndExecuteReplay()
     
     local ReplayButton = nil
     local SemuaGui = PlayerGui:GetDescendants()
+    if not HasVictoryUi(SemuaGui) then return end
     
     for i = 1, #SemuaGui do
         local obj = SemuaGui[i]
@@ -265,7 +480,7 @@ local function ScanAndExecuteReplay()
             local textLower = string.lower(obj.Text)
             if string.find(textLower, "play") and string.find(textLower, "again") then
                 local parentButton = obj:FindFirstAncestorWhichIsA("TextButton") or obj:FindFirstAncestorWhichIsA("ImageButton") or obj.Parent
-                if parentButton and parentButton.AbsolutePosition.Y > 0 then
+                if IsGuiVisible(parentButton) then
                     ReplayButton = parentButton
                     break
                 end
@@ -273,7 +488,7 @@ local function ScanAndExecuteReplay()
         elseif obj:IsA("TextButton") or obj:IsA("ImageButton") then
             local nameLower = string.lower(obj.Name)
             if string.find(nameLower, "replay") or string.find(nameLower, "again") or string.find(nameLower, "restart") then
-                if obj.Visible and obj.AbsolutePosition.Y > 0 then
+                if IsGuiVisible(obj) then
                     ReplayButton = obj
                     break
                 end
@@ -282,55 +497,84 @@ local function ScanAndExecuteReplay()
     end
     
     if ReplayButton then
-        print("[Auto Replay] Target Tombol Terkunci. Mengeksekusi Re-Run...")
-        task.wait(1.0)
-        EksekusiKlikReplay(ReplayButton)
-        task.wait(4.0) 
+        print("[Auto Replay] Reward settle delay sebelum re-run...")
+        Target = nil
+        task.wait(5.0)
+
+        if HasVictoryUi(PlayerGui:GetDescendants()) and IsGuiVisible(ReplayButton) then
+            print("[Auto Replay] Target Tombol Terkunci. Mengeksekusi Re-Run...")
+            EksekusiKlikReplay(ReplayButton)
+            task.wait(8.0)
+        end
     end
 end
 
 task.spawn(function()
     while true do
         if _G.AutoFarm then
-            local Success, NewTarget, IsAnEgg = pcall(GetClosestTargetZeroSpike)
-            if Success and NewTarget then
-                Target = NewTarget
-                IsEgg = IsAnEgg
-                task.wait(0.5) 
+            if IsEgg and Target and Target.Parent and os.clock() < EggLockEnd then
+                LastEnemySeen = os.clock()
+                task.wait(0.5)
             else
-                Target = nil
-                
-                if _G.AutoReplay then
-                    pcall(ScanAndExecuteReplay)
-                end
-                
-                if _G.AutoProgressStage and not IsEnteringPortal and not PortalCooldown then
-                    local CurrentTime = os.clock()
-                    if (CurrentTime - LastPortalCheck) >= 1.5 then 
-                        LastPortalCheck = CurrentTime
-                        pcall(TeleportToNextStagePortal)
+                local Success, NewTarget, NewTargetKind = pcall(GetClosestTargetZeroSpike)
+                if Success and NewTarget then
+                    LastEnemySeen = os.clock()
+                    Target = NewTarget
+                    TargetKind = NewTargetKind
+                    IsEgg = NewTargetKind == "egg"
+                    TrackBreakableTarget(NewTarget, NewTargetKind)
+                    TrackEggTarget(NewTarget, NewTargetKind)
+                    TriggerEggIfNeeded(NewTarget, NewTargetKind)
+                    task.wait(0.5) 
+                else
+                    Target = nil
+                    TargetKind = nil
+                    IsEgg = false
+                    pcall(ScanAndHandleDeath)
+                    
+                    if _G.AutoReplay then
+                        pcall(ScanAndExecuteReplay)
                     end
+                    
+                    if _G.AutoProgressStage and not IsEnteringPortal and not PortalCooldown then
+                        local CurrentTime = os.clock()
+                        if (CurrentTime - LastEnemySeen) >= 4.0 and (CurrentTime - LastPortalCheck) >= 1.5 then 
+                            LastPortalCheck = CurrentTime
+                            pcall(TeleportToNextStagePortal)
+                        end
+                    end
+                    task.wait(0.2)
                 end
-                task.wait(0.2)
             end
         else
             Target = nil
+            TargetKind = nil
+            IsEgg = false
             task.wait(0.5)
         end
     end
 end)
-
-local RaycastParamsInstance = RaycastParams.new()
-RaycastParamsInstance.FilterType = Enum.RaycastFilterType.Exclude
 
 RunService.Heartbeat:Connect(function(dt)
     local Character = LocalPlayer.Character
     local MyRoot = Character and Character:FindFirstChild("HumanoidRootPart")
     local MyHumanoid = Character and Character:FindFirstChild("Humanoid")
     if not MyRoot or not MyHumanoid or IsEnteringPortal or not _G.AutoFarm then return end
-    if not Target or not Target.Parent or not Target.Parent:FindFirstChildOfClass("Humanoid") or Target.Parent:FindFirstChildOfClass("Humanoid").Health <= 0 then 
+    if IsExtractingEgg then return end
+    if not Target or not Target.Parent then
         Target = nil
-        return 
+        TargetKind = nil
+        IsEgg = false
+        return
+    end
+    if TargetKind == "enemy" then
+        local TargetHumanoid = Target.Parent:FindFirstChildOfClass("Humanoid")
+        if not TargetHumanoid or TargetHumanoid.Health <= 0 then
+            Target = nil
+            TargetKind = nil
+            IsEgg = false
+            return
+        end
     end
     MyRoot.Velocity = Vector3.new(0, MyRoot.Velocity.Y, 0)
     local CurrentRadius = _G.RadiusPutar
@@ -393,6 +637,7 @@ local ScreenGui = Instance.new("ScreenGui")
 local MasterButton = Instance.new("TextButton")
 local ModeButton = Instance.new("TextButton")
 local ReplayButtonToggle = Instance.new("TextButton") -- [BARU] Tombol Replay Toggle
+StatsLabel = Instance.new("TextLabel")
 
 local OldGui = LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("IronSoulDualMenu")
 if OldGui then OldGui:Destroy() end
@@ -437,6 +682,18 @@ ReplayButtonToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
 ReplayButtonToggle.TextSize = 14
 ReplayButtonToggle.BorderSizePixel = 2
 
+StatsLabel.Name = "StatsLabel"
+StatsLabel.Parent = ScreenGui
+StatsLabel.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+StatsLabel.BackgroundTransparency = 0.15
+StatsLabel.Position = UDim2.new(0.05, 0, 0.41, 0)
+StatsLabel.Size = UDim2.new(0, 160, 0, 48)
+StatsLabel.Font = Enum.Font.SourceSansBold
+StatsLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+StatsLabel.TextSize = 13
+StatsLabel.BorderSizePixel = 2
+UpdateStatsLabel()
+
 -- KONEKSI EVENT INTERAKSI KLIK UI
 MasterButton.MouseButton1Click:Connect(function()
     local Character = LocalPlayer.Character
@@ -446,12 +703,16 @@ MasterButton.MouseButton1Click:Connect(function()
         MasterButton.Text = "SCRIPT: OFF"
         MasterButton.BackgroundColor3 = Color3.fromRGB(170, 0, 0) 
         Target = nil
+        TargetKind = nil
+        IsEgg = false
         if MyRoot then
             local SkyY = MyRoot.Position.Y + 150
             MyRoot.CFrame = CFrame.new(MyRoot.Position.X, SkyY, MyRoot.Position.Z)
         end
     else
         Target = nil 
+        TargetKind = nil
+        IsEgg = false
         _G.AutoFarm = true
         MasterButton.Text = "SCRIPT: ON"
         MasterButton.BackgroundColor3 = Color3.fromRGB(0, 170, 0) 
