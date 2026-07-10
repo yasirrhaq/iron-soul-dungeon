@@ -411,134 +411,397 @@ end
 -- [FINAL PERFECT VERSION] AUTO WAVE TRIGGER & STAGE PORTAL PROGRESSION
 -- =========================================================================
 local LastWaveTriggerAttempt = 0
-local LastMapPath = "" -- Menyimpan nama map terakhir untuk deteksi Play Again
+local LastMapPath = ""
+local MatchLoadTimer = 0
+
+local LastWaveTriggerAttempt = 0
+local LastWorldInstance = nil
+local MatchLoadTimer = 0
+
+local LastPortal = nil
+local LastPortalPosition = nil
+local LastPortalAttemptTime = 0
+
+local WAVE_TRIGGER_COOLDOWN = 2
+local PORTAL_COOLDOWN_DURATION = 8
+local MAP_LOAD_DELAY = 5
+local SAME_PORTAL_POSITION_TOLERANCE = 3
+
+
+local function ResetPortalState()
+    PortalCooldown = false
+    IsEnteringPortal = false
+
+    LastPortal = nil
+    LastPortalPosition = nil
+    LastPortalAttemptTime = 0
+    LastWaveTriggerAttempt = 0
+end
+
+
+local function IsPortalAlreadyUsed(PortalPart)
+    if not PortalPart then
+        return false
+    end
+ 
+    -- Portal lama sudah dihancurkan/diganti oleh game
+    if LastPortal and not LastPortal.Parent then
+        LastPortal = nil
+        LastPortalPosition = nil
+        LastPortalAttemptTime = 0
+        return false
+    end
+ 
+    -- FIX: Jika waktu percobaan terakhir sudah lewat dari durasi cooldown (8 detik),
+    -- anggap portal sudah kedaluwarsa sehingga bot diizinkan untuk mencoba interaksi ulang.
+    if os.clock() - LastPortalAttemptTime > PORTAL_COOLDOWN_DURATION then
+        LastPortal = nil
+        LastPortalPosition = nil
+        LastPortalAttemptTime = 0
+        return false
+    end
+ 
+    -- Instance portal sama dan masih dalam masa tunggu cooldown
+    if LastPortal == PortalPart then
+        return true
+    end
+ 
+    -- Instance mungkin diganti, tetapi posisinya masih sama (Anti-spam posisi)
+    if LastPortalPosition then
+        local PositionDifference = (PortalPart.Position - LastPortalPosition).Magnitude
+        if PositionDifference <= SAME_PORTAL_POSITION_TOLERANCE then
+            return true
+        end
+    end
+ 
+    return false
+end
+
+
+local function TriggerPortalInteraction(MyRoot, PortalPart)
+    if not MyRoot or not MyRoot.Parent then
+        return
+    end
+
+    if not PortalPart or not PortalPart.Parent then
+        return
+    end
+
+    -- Pindahkan karakter sedikit di atas titik portal
+    MyRoot.CFrame = CFrame.new(
+        PortalPart.Position + Vector3.new(0, 1, 0)
+    )
+
+    MyRoot.AssemblyLinearVelocity = Vector3.zero
+    MyRoot.AssemblyAngularVelocity = Vector3.zero
+
+    -- Tekan Shift + F
+    VirtualInputManager:SendKeyEvent(
+        true,
+        Enum.KeyCode.LeftShift,
+        false,
+        game
+    )
+
+    VirtualInputManager:SendKeyEvent(
+        true,
+        Enum.KeyCode.F,
+        false,
+        game
+    )
+
+    task.wait(0.05)
+
+    VirtualInputManager:SendKeyEvent(
+        false,
+        Enum.KeyCode.F,
+        false,
+        game
+    )
+
+    VirtualInputManager:SendKeyEvent(
+        false,
+        Enum.KeyCode.LeftShift,
+        false,
+        game
+    )
+
+    task.wait(0.2)
+
+    if MyRoot and MyRoot.Parent then
+        MyRoot.AssemblyLinearVelocity = Vector3.zero
+        MyRoot.AssemblyAngularVelocity = Vector3.zero
+    end
+end
+
 
 local function TeleportToNextStagePortal()
     local Character = LocalPlayer.Character
-    local MyRoot = Character and Character:FindFirstChild("HumanoidRootPart")
-    local MyHumanoid = Character and Character:FindFirstChild("Humanoid")
-    if not MyRoot or not MyHumanoid then return end
+    local MyRoot = Character
+        and Character:FindFirstChild("HumanoidRootPart")
 
-    -- DETEKSI PLAY AGAIN (Reset gembok jika mendeteksi perubahan/muat ulang map baru)
-    local CurrentWorld = workspace:FindFirstChild("World")
-    local CurrentMapPath = CurrentWorld and CurrentWorld:GetFullName() or ""
-    if CurrentMapPath ~= LastMapPath then
-        LastMapPath = CurrentMapPath
-        PortalCooldown = false
-        IsEnteringPortal = false
-        print("🔄 [System] Map Baru Terdeteksi / Play Again. Reset State Cooldown!")
+    local MyHumanoid = Character
+        and Character:FindFirstChildOfClass("Humanoid")
+
+    if not MyRoot or not MyHumanoid then
+        return
     end
 
-    -- Jika script beneran sedang transisi loading screen, baru return
-    if PortalCooldown or not _G.AutoProgressStage or IsEnteringPortal then return end 
+    if MyHumanoid.Health <= 0 then
+        return
+    end
 
-    -- DETEKSI JIKA KITA SEDANG DI ENDLESS TOWER / TRIAL
+    -- =========================================================
+    -- DETEKSI PERGANTIAN MAP / PLAY AGAIN
+    -- =========================================================
+
+    local CurrentWorld = workspace:FindFirstChild("World")
+
+    if CurrentWorld ~= LastWorldInstance then
+        LastWorldInstance = CurrentWorld
+
+        ResetPortalState()
+
+        MatchLoadTimer = os.clock() + MAP_LOAD_DELAY
+
+        print(
+            "🔄 [System] Map baru dimuat. "
+            .. "Radar portal dikunci selama "
+            .. tostring(MAP_LOAD_DELAY)
+            .. " detik..."
+        )
+    end
+
+    if not _G.AutoProgressStage then
+        return
+    end
+
+    if PortalCooldown or IsEnteringPortal then
+        return
+    end
+
+    -- =========================================================
+    -- DETEKSI MODE ENDLESS TOWER
+    -- =========================================================
+
     local IsEndlessTower = false
+
     if CurrentWorld and CurrentWorld:FindFirstChild("Start") then
         IsEndlessTower = true
     end
 
-    -- Cek keberadaan TouchInterest aktif di folder Wave terlebih dahulu
-    local WaveSpawnTouch = workspace:FindFirstChild("WaveSpawnTouch")
-    local HasActiveWaveInterest = false
-    
-    if WaveSpawnTouch then
-        for _, zone in pairs(WaveSpawnTouch:GetChildren()) do
-            if zone:IsA("BasePart") and zone:FindFirstChildOfClass("TouchInterest") then
-                HasActiveWaveInterest = true
-                break
-            end
-        end
-    end
+    -- =========================================================
+    -- CARI WAVE SPAWN TOUCH
+    -- =========================================================
 
-    -- =====================================================================
-    -- STEP 1: TRIGGER SENSOR WAVE (Agresif, Radius Luas, Kunci Tinggi Tanah)
-    -- =====================================================================
-    if WaveSpawnTouch and HasActiveWaveInterest then 
-        local ActiveTouchZone = nil
-        local ClosestZoneDist = math.huge
-        
-        for _, zone in pairs(WaveSpawnTouch:GetChildren()) do
-            if zone:IsA("BasePart") and zone:FindFirstChildOfClass("TouchInterest") then
-                local dist = (MyRoot.Position - zone.Position).Magnitude
-                if dist < ClosestZoneDist and dist <= 9999 then
-                    ClosestZoneDist = dist
-                    ActiveTouchZone = zone
+    local WorldEnemys = workspace:FindFirstChild("WorldEnemys")
+
+    local WaveSpawnTouch =
+        workspace:FindFirstChild("WaveSpawnTouch")
+        or (
+            WorldEnemys
+            and WorldEnemys:FindFirstChild("WaveSpawnTouch")
+        )
+
+    local HasActiveWaveInterest = false
+
+    if WaveSpawnTouch then
+        for _, Zone in ipairs(WaveSpawnTouch:GetChildren()) do
+            if Zone:IsA("BasePart") then
+                local TouchInterest =
+                    Zone:FindFirstChildOfClass("TouchInterest")
+                    or Zone:FindFirstChildOfClass("TouchTransmitter")
+
+                if TouchInterest then
+                    HasActiveWaveInterest = true
+                    break
                 end
             end
         end
-        
-        if ActiveTouchZone then
-            print("🌊 [SmartTrigger] Mengunci Wave Aktif via TouchInterest: " .. ActiveTouchZone.Name)
-            
-            local TargetPosition = Vector3.new(ActiveTouchZone.Position.X, MyRoot.Position.Y, ActiveTouchZone.Position.Z)
-            MyRoot.CFrame = CFrame.new(TargetPosition)
-            MyRoot.Velocity = Vector3.new(0, 0, 0)
-            
-            if firetouchinterest then
-                firetouchinterest(MyRoot, ActiveTouchZone, 0)
-                task.wait(0.02)
-                firetouchinterest(MyRoot, ActiveTouchZone, 1)
+    end
+
+    -- =========================================================
+    -- STEP 1: TRIGGER SENSOR WAVE
+    -- =========================================================
+
+    if WaveSpawnTouch and HasActiveWaveInterest then
+        local CurrentTime = os.clock()
+
+        if CurrentTime - LastWaveTriggerAttempt
+            < WAVE_TRIGGER_COOLDOWN then
+            return
+        end
+
+        local ActiveTouchZone = nil
+        local ClosestZoneDistance = math.huge
+
+        for _, Zone in ipairs(WaveSpawnTouch:GetChildren()) do
+            if Zone:IsA("BasePart") then
+                local TouchInterest =
+                    Zone:FindFirstChildOfClass("TouchInterest")
+                    or Zone:FindFirstChildOfClass("TouchTransmitter")
+
+                if TouchInterest then
+                    local Distance =
+                        (MyRoot.Position - Zone.Position).Magnitude
+
+                    if Distance < ClosestZoneDistance
+                        and Distance <= 9999 then
+                        ClosestZoneDistance = Distance
+                        ActiveTouchZone = Zone
+                    end
+                end
             end
-            
+        end
+
+        if ActiveTouchZone then
+            LastWaveTriggerAttempt = CurrentTime
+
+            print(
+                "🌊 [SmartTrigger] Mengunci Wave Aktif: "
+                .. ActiveTouchZone:GetFullName()
+            )
+
+            local TargetPosition = Vector3.new(
+                ActiveTouchZone.Position.X,
+                MyRoot.Position.Y,
+                ActiveTouchZone.Position.Z
+            )
+
+            MyRoot.CFrame = CFrame.new(TargetPosition)
+            MyRoot.AssemblyLinearVelocity = Vector3.zero
+            MyRoot.AssemblyAngularVelocity = Vector3.zero
+
+            if firetouchinterest then
+                firetouchinterest(
+                    MyRoot,
+                    ActiveTouchZone,
+                    0
+                )
+
+                task.wait(0.02)
+
+                firetouchinterest(
+                    MyRoot,
+                    ActiveTouchZone,
+                    1
+                )
+            end
+
             task.wait(0.5)
-            return -- Keluar penuh agar tidak mengecek portal
+            return
         end
     end
 
-    -- =====================================================================
-    -- STEP 2: SCANNING PORTAL (HANYA BERJALAN JIKA SENSOR WAVE BENAR-BENAR KOSONG)
-    -- =====================================================================
-    -- KUNCI AMAN: Jika di area masih ada TouchInterest Wave, JANGAN CARI PORTAL!
-    if HasActiveWaveInterest then return end
+    -- Jangan mencari portal selama wave masih aktif
+    if HasActiveWaveInterest then
+        return
+    end
+
+    -- Tunggu map selesai dimuat
+    if os.clock() < MatchLoadTimer then
+        return
+    end
+
+    -- =========================================================
+    -- STEP 2: SCANNING PORTAL
+    -- =========================================================
 
     local BestPortalPart = nil
     local HighestScore = 0
     local ClosestDistance = math.huge
-    
-    for _, obj in pairs(workspace:GetDescendants()) do
-        if obj:IsA("BasePart") or obj:IsA("MeshPart") then
-            local HasTrigger = obj:FindFirstChildOfClass("TouchTransmitter") or obj:FindFirstChildOfClass("ProximityPrompt")
-            
+
+    for _, Object in ipairs(workspace:GetDescendants()) do
+        if Object:IsA("BasePart") then
+            local HasTrigger =
+                Object:FindFirstChildOfClass("TouchTransmitter")
+                or Object:FindFirstChildOfClass("TouchInterest")
+                or Object:FindFirstChildOfClass("ProximityPrompt")
+
             if HasTrigger then
-                local DistanceToPortal = (MyRoot.Position - obj.Position).Magnitude
+                local DistanceToPortal =
+                    (MyRoot.Position - Object.Position).Magnitude
+
                 if DistanceToPortal <= MaxPortalDistance then
                     local CurrentScore = 0
-                    local LowerName = string.lower(obj.Name)
-                    local ParentName = obj.Parent and string.lower(obj.Parent.Name) or ""
-                    
+
+                    local LowerName =
+                        string.lower(Object.Name)
+
+                    local ParentName = ""
+
+                    if Object.Parent then
+                        ParentName =
+                            string.lower(Object.Parent.Name)
+                    end
+
+                    -- Abaikan collision part umum
                     if string.find(LowerName, "collide") then
                         CurrentScore = -100
                     end
-                    if IsEndlessTower and string.find(LowerName, "mapteleport") then
+
+                    -- Hindari MapTeleport pada endless tower
+                    if IsEndlessTower
+                        and string.find(
+                            LowerName,
+                            "mapteleport"
+                        ) then
                         CurrentScore = -100
                     end
-                    
+
                     if CurrentScore >= 0 then
-                        if string.find(LowerName, "portal") or string.find(ParentName, "portal") or 
-                           string.find(LowerName, "door") or string.find(ParentName, "door") or 
-                           string.find(LowerName, "gate") or string.find(LowerName, "pintu") then
-                            
-                            CurrentScore = CurrentScore + 10 
-                        elseif string.find(LowerName, "next") or string.find(LowerName, "exit") or string.find(LowerName, "finish") or string.find(LowerName, "teleport") then
+                        if string.find(LowerName, "portal")
+                            or string.find(ParentName, "portal")
+                            or string.find(LowerName, "door")
+                            or string.find(ParentName, "door")
+                            or string.find(LowerName, "gate")
+                            or string.find(ParentName, "gate")
+                            or string.find(LowerName, "pintu")
+                            or string.find(ParentName, "pintu") then
+
+                            CurrentScore = CurrentScore + 10
+
+                        elseif string.find(LowerName, "next")
+                            or string.find(ParentName, "next")
+                            or string.find(LowerName, "exit")
+                            or string.find(ParentName, "exit")
+                            or string.find(LowerName, "finish")
+                            or string.find(ParentName, "finish")
+                            or string.find(LowerName, "teleport")
+                            or string.find(ParentName, "teleport") then
+
                             CurrentScore = CurrentScore + 4
                         end
-                        
-                        CurrentScore = CurrentScore + 3 
-                        if LowerName == "root" then CurrentScore = CurrentScore + 2 end 
-                        if obj.Material == Enum.Material.Neon then CurrentScore = CurrentScore + 2 end
-                        if obj.Size.Y > 4 and obj.Size.X > 4 then CurrentScore = CurrentScore + 1 end
+
+                        -- Memiliki trigger
+                        CurrentScore = CurrentScore + 3
+
+                        if LowerName == "root" then
+                            CurrentScore = CurrentScore + 2
+                        end
+
+                        if Object.Material
+                            == Enum.Material.Neon then
+                            CurrentScore = CurrentScore + 2
+                        end
+
+                        if Object.Size.Y > 4
+                            and Object.Size.X > 4 then
+                            CurrentScore = CurrentScore + 1
+                        end
                     end
-                    
+
                     if CurrentScore > HighestScore then
                         HighestScore = CurrentScore
-                        BestPortalPart = obj
+                        BestPortalPart = Object
                         ClosestDistance = DistanceToPortal
-                    elseif CurrentScore == HighestScore and CurrentScore > 0 then
-                        if DistanceToPortal < ClosestDistance then
-                            BestPortalPart = obj
-                            ClosestDistance = DistanceToPortal
-                        end
+
+                    elseif CurrentScore == HighestScore
+                        and CurrentScore > 0
+                        and DistanceToPortal < ClosestDistance then
+
+                        BestPortalPart = Object
+                        ClosestDistance = DistanceToPortal
                     end
                 end
             end
@@ -546,35 +809,69 @@ local function TeleportToNextStagePortal()
     end
 
     local RequiredScore = 10
-    if IsEndlessTower then RequiredScore = 3 end
 
-    if BestPortalPart and HighestScore >= RequiredScore then
-        IsEnteringPortal = true
-        PortalCooldown = true 
-        print("🚪 [Portal] Sukses Mengunci Portal Utama: " .. BestPortalPart:GetFullName() .. " (Skor: " .. HighestScore .. ")")
-        
-        MyRoot.CFrame = CFrame.new(BestPortalPart.Position)
-        
-        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
-        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
-        task.wait(0.05)
-        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
-        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
-        
-        task.wait(0.2) 
-        MyRoot.Velocity = Vector3.new(0, 0, 0)
-        IsEnteringPortal = false
-        
-        task.spawn(function()
-            task.wait(8.0) 
-            PortalCooldown = false
-        end)
-    else
+    if IsEndlessTower then
+        RequiredScore = 3
+    end
+
+    -- Tidak menemukan portal valid
+    if not BestPortalPart
+        or HighestScore < RequiredScore then
+
         if IsEndlessTower then
             IsEnteringPortal = false
             PortalCooldown = false
         end
+
+        return
     end
+
+    -- Portal yang sama sudah pernah digunakan
+    if IsPortalAlreadyUsed(BestPortalPart) then
+        return
+    end
+
+    -- =========================================================
+    -- STEP 3: MASUK PORTAL
+    -- =========================================================
+
+    IsEnteringPortal = true
+    PortalCooldown = true
+
+    LastPortal = BestPortalPart
+    LastPortalPosition = BestPortalPart.Position
+    LastPortalAttemptTime = os.clock()
+
+    print(
+        "🚪 [Portal] Sukses Mengunci Portal Utama: "
+        .. BestPortalPart:GetFullName()
+        .. " (Skor: "
+        .. tostring(HighestScore)
+        .. ", Jarak: "
+        .. string.format("%.1f", ClosestDistance)
+        .. ")"
+    )
+
+    TriggerPortalInteraction(
+        MyRoot,
+        BestPortalPart
+    )
+
+    IsEnteringPortal = false
+
+    task.spawn(function()
+        task.wait(PORTAL_COOLDOWN_DURATION)
+
+        PortalCooldown = false
+
+        -- Hanya hapus portal terakhir apabila instance lama
+        -- memang sudah hilang dari workspace.
+        if LastPortal and not LastPortal.Parent then
+            LastPortal = nil
+            LastPortalPosition = nil
+            LastPortalAttemptTime = 0
+        end
+    end)
 end
 
 -- INTERCEPTOR SCAN REPLAY DEEP AREA
