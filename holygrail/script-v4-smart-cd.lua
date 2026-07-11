@@ -140,6 +140,7 @@ local function TryAutoBuyGoldShopOnce()
     local RemoteEvent = GetConsumableShopRemoteEvent()
     for ItemKey, Item in pairs(Items) do
         if type(Item) == "table" and Item.State == "normal" and AutoBuyWantedItemIds[Item.ItemId] then
+            print("[AutoBuy] Buying " .. tostring(Item.ItemId) .. " via " .. tostring(ItemKey))
             RemoteEvent:FireServer("BuyShopItem", "Gold", ItemKey)
             task.wait(AutoBuyDelay)
         end
