@@ -1,7 +1,6 @@
 -- ====================================================================
 -- IRON SOUL - ULTIMATE REWRITTEN FARM (V20 MASTER + REPLAY TOGGLE BUTTON)
 -- ====================================================================
-
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local VirtualInputManager = game:GetService("VirtualInputManager")
@@ -20,23 +19,32 @@ local Config = {
     UndergroundMode = true,
     AutoReplay = true,
     PerfectForge = true,
-    AutoBuy = false
+    AutoBuy = false,
+    AutoSell = false
 }
 
 local function ClampNumber(value, minimum, maximum, fallback)
     value = tonumber(value)
-    if not value then return fallback end
+    if not value then
+        return fallback
+    end
     return math.clamp(value, minimum, maximum)
 end
 
 local function LoadConfig()
     if readfile and isfile and isfile(FileNama) then
-        local BerhasilBaca, IsiFile = pcall(function() return readfile(FileNama) end)
+        local BerhasilBaca, IsiFile = pcall(function()
+            return readfile(FileNama)
+        end)
         if BerhasilBaca then
-            local BerhasilDecode, Data = pcall(function() return HttpService:JSONDecode(IsiFile) end)
+            local BerhasilDecode, Data = pcall(function()
+                return HttpService:JSONDecode(IsiFile)
+            end)
             if BerhasilDecode and type(Data) == "table" then
                 for Key, Value in pairs(Data) do
-                    if Config[Key] ~= nil then Config[Key] = Value end
+                    if Config[Key] ~= nil then
+                        Config[Key] = Value
+                    end
                 end
             end
         end
@@ -47,6 +55,7 @@ local function LoadConfig()
     Config.AutoReplay = Config.AutoReplay ~= false
     Config.PerfectForge = Config.PerfectForge ~= false
     Config.AutoBuy = Config.AutoBuy == true
+    Config.AutoSell = Config.AutoSell == true
 end
 
 local function SaveConfig()
@@ -55,10 +64,15 @@ local function SaveConfig()
     Config.AutoReplay = _G.AutoReplay
     Config.PerfectForge = _G.PerfectForge
     Config.AutoBuy = _G.AutoBuy
-    local Berhasil, HasilJSON = pcall(function() return HttpService:JSONEncode(Config) end)
+    Config.AutoSell = _G.AutoSell
+    local Berhasil, HasilJSON = pcall(function()
+        return HttpService:JSONEncode(Config)
+    end)
     if Berhasil and writefile then
         pcall(function()
-            if makefolder then makefolder(FolderNama) end
+            if makefolder then
+                makefolder(FolderNama)
+            end
             writefile(FileNama, HasilJSON)
         end)
     end
@@ -67,18 +81,19 @@ end
 LoadConfig()
 
 -- KONTROL SCRIPT MASTER
-_G.AutoFarm = true          
+_G.AutoFarm = true
 _G.AutoSkill = true
-_G.RadiusPutar = 6          
+_G.RadiusPutar = 6
 _G.TinggiMelayang = Config.TinggiMelayang
-_G.KecepatanPutar = 4.0     
+_G.KecepatanPutar = 4.0
 _G.UndergroundMode = Config.UndergroundMode
 _G.KillAuraRadius = _G.TinggiMelayang + 40
-_G.AutoProgressStage = true  
+_G.AutoProgressStage = true
 _G.AutoReplay = Config.AutoReplay -- Mengontrol status replay otomatis secara global
-_G.SemiGodMode = true        
+_G.SemiGodMode = true
 _G.PerfectForge = Config.PerfectForge
 _G.AutoBuy = Config.AutoBuy
+_G.AutoSell = Config.AutoSell
 
 local SudutPutar = 0
 local Target = nil
@@ -94,13 +109,13 @@ local CountedEggTriggers = {}
 local StatsLabel = nil
 
 local LastJumpTime = 0
-local JumpInterval = 0.1 
+local JumpInterval = 0.1
 local LastPortalCheck = 0
-local IsEnteringPortal = false 
-local PortalCooldown = false 
+local IsEnteringPortal = false
+local PortalCooldown = false
 local LastEnemySeen = os.clock()
 
-local MaxPortalDistance = 250 
+local MaxPortalDistance = 250
 local RaycastParamsInstance = RaycastParams.new()
 RaycastParamsInstance.FilterType = Enum.RaycastFilterType.Exclude
 local AutoBuyWantedItemIds = {
@@ -108,15 +123,28 @@ local AutoBuyWantedItemIds = {
     DropPotion_1 = true
 }
 local AutoBuyDelay = 0.55
+local SellMaxRarity = 5
+local SellOres = {
+    Corundum = true,
+    Heatshell = true,
+    Gwindel = true
+}
+local KeepOres = {
+    Blackhole = true,
+    BloodHeart = true,
+    Apocalypse = true,
+    DarkBlossom = true
+}
+local AutoSellDelay = 5.0
 local ConsumableShopUtilModule = nil
 local ConsumableShopRemoteEvent = nil
+local FrameworkModule = nil
+local ForgeRemoteFunction = nil
 
 local function GetConsumableShopUtilModule()
     if not ConsumableShopUtilModule then
-        ConsumableShopUtilModule = ReplicatedStorage:WaitForChild("Framework")
-            :WaitForChild("Features")
-            :WaitForChild("ConsumableShopSystem")
-            :WaitForChild("ConsumableShopUtil")
+        ConsumableShopUtilModule = ReplicatedStorage:WaitForChild("Framework"):WaitForChild("Features"):WaitForChild(
+            "ConsumableShopSystem"):WaitForChild("ConsumableShopUtil")
     end
     return ConsumableShopUtilModule
 end
@@ -135,7 +163,9 @@ end
 local function TryAutoBuyGoldShopOnce()
     local Snapshot = GetConsumableShopUtil():GetShopSnapshot(LocalPlayer, "Gold")
     local Items = Snapshot and Snapshot.Items
-    if type(Items) ~= "table" then return end
+    if type(Items) ~= "table" then
+        return
+    end
 
     local RemoteEvent = GetConsumableShopRemoteEvent()
     for ItemKey, Item in pairs(Items) do
@@ -156,6 +186,53 @@ task.spawn(function()
     end
 end)
 
+local function GetFrameworkModule()
+    if not FrameworkModule then
+        FrameworkModule = require(ReplicatedStorage:WaitForChild("Framework"))
+    end
+    return FrameworkModule
+end
+
+local function GetForgeRemoteFunction()
+    if not ForgeRemoteFunction then
+        ForgeRemoteFunction = ReplicatedStorage:WaitForChild("Framework"):WaitForChild("Features"):WaitForChild(
+            "ForgeSystem"):WaitForChild("ForgeRF")
+    end
+    return ForgeRemoteFunction
+end
+
+local function TryAutoSellOresOnce()
+    local Framework = GetFrameworkModule()
+    local DataUtil = Framework.Modules.DataUtil
+    local ForgeUtil = Framework.Modules.ForgeUtil
+    local Ores = DataUtil:GetValue(LocalPlayer, {"Ores"}) or {}
+    local SellList = {}
+
+    for OreId, Count in pairs(Ores) do
+        Count = tonumber(Count) or 0
+        local Def = ForgeUtil:GetDef(OreId)
+        local ShouldSell = (Def and Def.Rarity <= SellMaxRarity) or SellOres[OreId]
+        if Count > 0 and ShouldSell and not KeepOres[OreId] then
+            print("[AutoSell] Selling " .. tostring(OreId) .. " x" .. tostring(Count) .. " rarity " ..
+                      tostring(Def and Def.Rarity or "?"))
+            table.insert(SellList, OreId)
+        end
+    end
+
+    if #SellList > 0 then
+        GetForgeRemoteFunction():InvokeServer("Sell", SellList)
+    end
+end
+
+task.spawn(function()
+    while true do
+        task.wait(AutoSellDelay)
+        if _G.AutoSell then
+            pcall(TryAutoSellOresOnce)
+        end
+    end
+end)
+
 -- =========================================================================
 -- SYSTEM UTILITY: [BARU] PERFECT FORGE MODULE VIA METAMETHOD INJECTION
 -- =========================================================================
@@ -167,7 +244,7 @@ local oldCallback
 oldCallback = setBypass(game, "__namecall", function(self, ...)
     local method = getMethod()
     local args = {...}
-    
+
     -- Hanya berjalan jika fitur di UI bernilai TRUE dan memanggil Remote ForgeRF
     if _G.PerfectForge and self.Name == "ForgeRF" then
         for i, arg in pairs(args) do
@@ -176,7 +253,7 @@ oldCallback = setBypass(game, "__namecall", function(self, ...)
             end
         end
     end
-    
+
     return oldCallback(self, unpack(args))
 end)
 
@@ -191,7 +268,7 @@ if not _G.AntiAFK_Loaded then
     _G.AntiAFK_Loaded = true
     LocalPlayer.Idled:Connect(function()
         VirtualUser:CaptureController()
-        VirtualUser:ClickButton2(Vector2.new(0,0))
+        VirtualUser:ClickButton2(Vector2.new(0, 0))
     end)
 end
 
@@ -199,13 +276,14 @@ end
 local PlatformPart = Instance.new("Part")
 PlatformPart.Name = "AntiFallPlatform"
 PlatformPart.Size = Vector3.new(10, 1, 10)
-PlatformPart.Transparency = 1 
+PlatformPart.Transparency = 1
 PlatformPart.Anchored = true
 PlatformPart.CanCollide = true
 PlatformPart.Parent = workspace
 
 RunService.Heartbeat:Connect(function()
-    if _G.AutoFarm and _G.UndergroundMode and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+    if _G.AutoFarm and _G.UndergroundMode and LocalPlayer.Character and
+        LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
         local MyRoot = LocalPlayer.Character.HumanoidRootPart
         PlatformPart.Position = Vector3.new(MyRoot.Position.X, MyRoot.Position.Y - 3.5, MyRoot.Position.Z)
         PlatformPart.CanCollide = true
@@ -235,7 +313,9 @@ local function HoldKey(key, seconds)
 end
 
 local function TriggerPrompt(prompt)
-    if not prompt then return false end
+    if not prompt then
+        return false
+    end
     if fireproximityprompt then
         fireproximityprompt(prompt)
         return true
@@ -249,32 +329,53 @@ end
 
 -- FUNGSI HIT TOMBOL REPLAY VIA GUI SELECTION
 local function EksekusiKlikReplay(tombol)
-    if not tombol then return end
+    if not tombol then
+        return
+    end
     pcall(function()
         if getconnections then
-            for _, conn in pairs(getconnections(tombol.MouseButton1Click)) do conn:Fire() end
-            for _, conn in pairs(getconnections(tombol.Activated)) do conn:Fire() end
+            for _, conn in pairs(getconnections(tombol.MouseButton1Click)) do
+                conn:Fire()
+            end
+            for _, conn in pairs(getconnections(tombol.Activated)) do
+                conn:Fire()
+            end
         end
     end)
     pcall(function()
         local cx = tombol.AbsolutePosition.X + (tombol.AbsoluteSize.X / 2)
         local cy = tombol.AbsolutePosition.Y + (tombol.AbsoluteSize.Y / 2) + 36
-        
+
         GuiService.SelectedObject = tombol
         VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
         task.wait(0.02)
         VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
         GuiService.SelectedObject = nil
-        
+
         VirtualUser:CaptureController()
         VirtualUser:ClickButton1(Vector2.new(cx, cy))
     end)
 end
 
 -- AUTO SKILL DENGAN COOLDOWN
-local LastUsed = {Q = 0, E = 0, R = 0, G = 0}
-local Cooldowns = {Q = 1, E = 3, R = 5, G = 7}
-local SkillButtonNames = {Q = "Skill1", E = "Skill2", G = "SkillAW", R = "SkillU"}
+local LastUsed = {
+    Q = 0,
+    E = 0,
+    R = 0,
+    G = 0
+}
+local Cooldowns = {
+    Q = 1,
+    E = 3,
+    R = 5,
+    G = 7
+}
+local SkillButtonNames = {
+    Q = "Skill1",
+    E = "Skill2",
+    G = "SkillAW",
+    R = "SkillU"
+}
 local SkillPriority = {"G", "R", "E", "Q"}
 local SkillDebug = _G.SkillDebug ~= false
 local SkillAnimationReleaseWindow = 0.2
@@ -289,15 +390,21 @@ local NoSwitchSkillsReadySince = nil
 local IsSwitchPending = false
 
 local function DebugSkill(message)
-    if not SkillDebug then return end
+    if not SkillDebug then
+        return
+    end
     local CurrentTime = os.clock()
-    if CurrentTime - LastSkillDebugAt < 0.5 then return end
+    if CurrentTime - LastSkillDebugAt < 0.5 then
+        return
+    end
     LastSkillDebugAt = CurrentTime
     print("[SkillCD] " .. message)
 end
 
 local function DebugSkillNow(message)
-    if SkillDebug then print("[SkillCD] " .. message) end
+    if SkillDebug then
+        print("[SkillCD] " .. message)
+    end
 end
 
 local function GetSkillsFrame()
@@ -311,7 +418,9 @@ local function GetSkillButton(key)
     local Skills = GetSkillsFrame()
     local SkillName = SkillButtonNames[key]
     local DirectButton = Skills and Skills:FindFirstChild(SkillName)
-    if DirectButton then return DirectButton end
+    if DirectButton then
+        return DirectButton
+    end
     local Buttons = Skills and Skills:FindFirstChild("LocalPCSkillButtons")
     return (Buttons and Buttons:FindFirstChild(SkillName)) or (Skills and Skills:FindFirstChild(SkillName, true)) or nil
 end
@@ -337,14 +446,18 @@ end
 
 local function ConfirmWeaponSwitchSucceeded(previousSwitchTs, previousWeaponUUID)
     local CurrentSwitchTs = LocalPlayer:GetAttribute("SwitchWpnLastTs")
-    if CurrentSwitchTs ~= previousSwitchTs then return true, "ts changed" end
+    if CurrentSwitchTs ~= previousSwitchTs then
+        return true, "ts changed"
+    end
 
     local CurrentWeaponUUID = GetEquippedWeaponUUID()
     if previousWeaponUUID and CurrentWeaponUUID and CurrentWeaponUUID ~= previousWeaponUUID then
         return true, "uuid changed"
     end
 
-    if IsWeaponSwitchOnCooldown() then return true, "cooldown visible" end
+    if IsWeaponSwitchOnCooldown() then
+        return true, "cooldown visible"
+    end
     return false, "not accepted"
 end
 
@@ -361,13 +474,16 @@ local function GetAnimationDebugSummary()
     local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
     local Animator = Humanoid and Humanoid:FindFirstChildOfClass("Animator")
     local StateName = Humanoid and Humanoid:GetState().Name or "no humanoid"
-    if not Animator then return "state=" .. StateName .. " anims=no animator" end
+    if not Animator then
+        return "state=" .. StateName .. " anims=no animator"
+    end
 
     local Animations = {}
     for _, Track in ipairs(Animator:GetPlayingAnimationTracks()) do
         local Length = Track.Length or 0
         local Position = Track.TimePosition or 0
-        Animations[#Animations + 1] = string.format("%s len=%.2f pos=%.2f rem=%.2f", tostring(Track.Name), Length, Position, Length - Position)
+        Animations[#Animations + 1] = string.format("%s len=%.2f pos=%.2f rem=%.2f", tostring(Track.Name), Length,
+            Position, Length - Position)
     end
 
     return "state=" .. StateName .. " anims=" .. (#Animations > 0 and table.concat(Animations, " | ") or "none")
@@ -399,8 +515,12 @@ local function ShouldSwitchWeapon(currentTime)
     NoSwitchSkillsReadySince = NoSwitchSkillsReadySince or currentTime
     IsSwitchPending = currentTime - LastWeaponSwitchAt >= WeaponSwitchCooldown and IsWeaponSwitchReady()
 
-    if not IsSwitchPending then return false end
-    if currentTime - NoSwitchSkillsReadySince < NoSwitchSkillsReadyDelay then return false end
+    if not IsSwitchPending then
+        return false
+    end
+    if currentTime - NoSwitchSkillsReadySince < NoSwitchSkillsReadyDelay then
+        return false
+    end
     return currentTime - LastWeaponSwitchAttemptAt >= WeaponSwitchAttemptInterval
 end
 
@@ -408,7 +528,9 @@ local function IsSkillAnimating()
     local Character = LocalPlayer.Character
     local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
     local Animator = Humanoid and Humanoid:FindFirstChildOfClass("Animator")
-    if not Animator then return false end
+    if not Animator then
+        return false
+    end
 
     for _, Track in ipairs(Animator:GetPlayingAnimationTracks()) do
         local Name = string.lower(Track.Name or "")
@@ -426,7 +548,8 @@ end
 task.spawn(function()
     while true do
         task.wait(0.1)
-        if _G.AutoFarm and _G.AutoSkill and LocalPlayer.Character and Target and not IsExtractingEgg and not IsEnteringPortal then
+        if _G.AutoFarm and _G.AutoSkill and LocalPlayer.Character and Target and not IsExtractingEgg and
+            not IsEnteringPortal then
             local CurrentTime = os.clock()
             local IsAnimating, AnimationName = IsSkillAnimating()
             if IsAnimating then
@@ -466,7 +589,8 @@ task.spawn(function()
                     LastWeaponSwitchAttemptAt = os.clock()
                     task.wait(WeaponSwitchConfirmDelay)
 
-                    local SwitchSucceeded, SwitchReason = ConfirmWeaponSwitchSucceeded(PreviousSwitchTs, PreviousWeaponUUID)
+                    local SwitchSucceeded, SwitchReason = ConfirmWeaponSwitchSucceeded(PreviousSwitchTs,
+                        PreviousWeaponUUID)
                     if SwitchSucceeded then
                         NoSwitchSkillsReadySince = nil
                         IsSwitchPending = false
@@ -496,7 +620,7 @@ RunService.Heartbeat:Connect(function()
             local Hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
             if Hum then
                 Hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                Hum.Jump = true 
+                Hum.Jump = true
             end
         end
     end
@@ -519,9 +643,13 @@ end)
 
 -- 3. SCANNING TARGET INTERNAL
 local function TrackBreakableTarget(target, kind)
-    if kind ~= "breakable" or not target then return end
+    if kind ~= "breakable" or not target then
+        return
+    end
     local trackTarget = target:FindFirstAncestorWhichIsA("Model") or target
-    if CountedBreakables[trackTarget] then return end
+    if CountedBreakables[trackTarget] then
+        return
+    end
     CountedBreakables[trackTarget] = true
     local counted = false
     trackTarget.Destroying:Connect(function()
@@ -534,9 +662,13 @@ local function TrackBreakableTarget(target, kind)
 end
 
 local function TrackEggTarget(target, kind)
-    if kind ~= "egg" or not target then return end
+    if kind ~= "egg" or not target then
+        return
+    end
     local eggModel = target:FindFirstAncestor("DragonEgg") or target:FindFirstAncestorWhichIsA("Model")
-    if not eggModel or CountedEggTriggers[eggModel] then return end
+    if not eggModel or CountedEggTriggers[eggModel] then
+        return
+    end
     CountedEggTriggers[eggModel] = true
     eggModel:GetAttributeChangedSignal("Active"):Connect(function()
         if eggModel:GetAttribute("Active") then
@@ -560,8 +692,12 @@ local function GetEggPrompt(target)
 end
 
 local function GetTargetPart(obj)
-    if obj:IsA("BasePart") then return obj end
-    if obj:IsA("Model") then return obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart", true) end
+    if obj:IsA("BasePart") then
+        return obj
+    end
+    if obj:IsA("Model") then
+        return obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart", true)
+    end
     return obj:FindFirstChildWhichIsA("BasePart", true)
 end
 
@@ -569,7 +705,9 @@ local function ScanWorldTarget(myRoot)
     local DragonEgg = workspace:FindFirstChild("DragonEgg")
     if DragonEgg and not DragonEgg:GetAttribute("Broken") then
         local part = GetTargetPart(DragonEgg)
-        if part then return part, "egg" end
+        if part then
+            return part, "egg"
+        end
     end
 
     local bestTarget = nil
@@ -593,10 +731,13 @@ local function MoveToEggGround(target)
     local Character = LocalPlayer.Character
     local MyRoot = Character and Character:FindFirstChild("HumanoidRootPart")
     local MyHumanoid = Character and Character:FindFirstChildOfClass("Humanoid")
-    if not MyRoot or not MyHumanoid then return false end
+    if not MyRoot or not MyHumanoid then
+        return false
+    end
 
     RaycastParamsInstance.FilterDescendantsInstances = {target.Parent, Character}
-    local GroundRay = workspace:Raycast(target.Position + Vector3.new(0, 8, 0), Vector3.new(0, -35, 0), RaycastParamsInstance)
+    local GroundRay = workspace:Raycast(target.Position + Vector3.new(0, 8, 0), Vector3.new(0, -35, 0),
+        RaycastParamsInstance)
     local GroundPos = GroundRay and GroundRay.Position or target.Position
     MyRoot.CFrame = CFrame.new(GroundPos + Vector3.new(0, 3, 0), target.Position)
     MyRoot.Velocity = Vector3.new(0, 0, 0)
@@ -608,7 +749,9 @@ end
 local function GetClosestTargetZeroSpike()
     local Character = LocalPlayer.Character
     local MyRoot = Character and Character:FindFirstChild("HumanoidRootPart")
-    if not MyRoot then return nil, false end
+    if not MyRoot then
+        return nil, false
+    end
 
     local NewTarget = nil
     local ClosestDistance = math.huge
@@ -630,14 +773,20 @@ local function GetClosestTargetZeroSpike()
             end
         end
     end
-    if NewTarget then return NewTarget, "enemy" end
+    if NewTarget then
+        return NewTarget, "enemy"
+    end
 
     return ScanWorldTarget(MyRoot)
 end
 
 local function TriggerEggIfNeeded(target, kind)
-    if kind ~= "egg" or IsExtractingEgg then return end
-    if LastTriggeredEgg == target and os.clock() < EggLockEnd then return end
+    if kind ~= "egg" or IsExtractingEgg then
+        return
+    end
+    if LastTriggeredEgg == target and os.clock() < EggLockEnd then
+        return
+    end
     IsExtractingEgg = true
     if not MoveToEggGround(target) then
         IsExtractingEgg = false
@@ -683,7 +832,6 @@ local PORTAL_COOLDOWN_DURATION = 8
 local MAP_LOAD_DELAY = 5
 local SAME_PORTAL_POSITION_TOLERANCE = 3
 
-
 local function ResetPortalState()
     PortalCooldown = false
     IsEnteringPortal = false
@@ -694,12 +842,11 @@ local function ResetPortalState()
     LastWaveTriggerAttempt = 0
 end
 
-
 local function IsPortalAlreadyUsed(PortalPart)
     if not PortalPart then
         return false
     end
- 
+
     -- Portal lama sudah dihancurkan/diganti oleh game
     if LastPortal and not LastPortal.Parent then
         LastPortal = nil
@@ -707,7 +854,7 @@ local function IsPortalAlreadyUsed(PortalPart)
         LastPortalAttemptTime = 0
         return false
     end
- 
+
     -- FIX: Jika waktu percobaan terakhir sudah lewat dari durasi cooldown (8 detik),
     -- anggap portal sudah kedaluwarsa sehingga bot diizinkan untuk mencoba interaksi ulang.
     if os.clock() - LastPortalAttemptTime > PORTAL_COOLDOWN_DURATION then
@@ -716,12 +863,12 @@ local function IsPortalAlreadyUsed(PortalPart)
         LastPortalAttemptTime = 0
         return false
     end
- 
+
     -- Instance portal sama dan masih dalam masa tunggu cooldown
     if LastPortal == PortalPart then
         return true
     end
- 
+
     -- Instance mungkin diganti, tetapi posisinya masih sama (Anti-spam posisi)
     if LastPortalPosition then
         local PositionDifference = (PortalPart.Position - LastPortalPosition).Magnitude
@@ -729,10 +876,9 @@ local function IsPortalAlreadyUsed(PortalPart)
             return true
         end
     end
- 
+
     return false
 end
-
 
 local function TriggerPortalInteraction(MyRoot, PortalPart)
     if not MyRoot or not MyRoot.Parent then
@@ -744,43 +890,21 @@ local function TriggerPortalInteraction(MyRoot, PortalPart)
     end
 
     -- Pindahkan karakter sedikit di atas titik portal
-    MyRoot.CFrame = CFrame.new(
-        PortalPart.Position + Vector3.new(0, 1, 0)
-    )
+    MyRoot.CFrame = CFrame.new(PortalPart.Position + Vector3.new(0, 1, 0))
 
     MyRoot.AssemblyLinearVelocity = Vector3.zero
     MyRoot.AssemblyAngularVelocity = Vector3.zero
 
     -- Tekan Shift + F
-    VirtualInputManager:SendKeyEvent(
-        true,
-        Enum.KeyCode.LeftShift,
-        false,
-        game
-    )
+    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
 
-    VirtualInputManager:SendKeyEvent(
-        true,
-        Enum.KeyCode.F,
-        false,
-        game
-    )
+    VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.F, false, game)
 
     task.wait(0.05)
 
-    VirtualInputManager:SendKeyEvent(
-        false,
-        Enum.KeyCode.F,
-        false,
-        game
-    )
+    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.F, false, game)
 
-    VirtualInputManager:SendKeyEvent(
-        false,
-        Enum.KeyCode.LeftShift,
-        false,
-        game
-    )
+    VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.LeftShift, false, game)
 
     task.wait(0.2)
 
@@ -790,14 +914,11 @@ local function TriggerPortalInteraction(MyRoot, PortalPart)
     end
 end
 
-
 local function TeleportToNextStagePortal()
     local Character = LocalPlayer.Character
-    local MyRoot = Character
-        and Character:FindFirstChild("HumanoidRootPart")
+    local MyRoot = Character and Character:FindFirstChild("HumanoidRootPart")
 
-    local MyHumanoid = Character
-        and Character:FindFirstChildOfClass("Humanoid")
+    local MyHumanoid = Character and Character:FindFirstChildOfClass("Humanoid")
 
     if not MyRoot or not MyHumanoid then
         return
@@ -820,12 +941,8 @@ local function TeleportToNextStagePortal()
 
         MatchLoadTimer = os.clock() + MAP_LOAD_DELAY
 
-        print(
-            "🔄 [System] Map baru dimuat. "
-            .. "Radar portal dikunci selama "
-            .. tostring(MAP_LOAD_DELAY)
-            .. " detik..."
-        )
+        print("🔄 [System] Map baru dimuat. " .. "Radar portal dikunci selama " .. tostring(MAP_LOAD_DELAY) ..
+                  " detik...")
     end
 
     if not _G.AutoProgressStage then
@@ -852,21 +969,16 @@ local function TeleportToNextStagePortal()
 
     local WorldEnemys = workspace:FindFirstChild("WorldEnemys")
 
-    local WaveSpawnTouch =
-        workspace:FindFirstChild("WaveSpawnTouch")
-        or (
-            WorldEnemys
-            and WorldEnemys:FindFirstChild("WaveSpawnTouch")
-        )
+    local WaveSpawnTouch = workspace:FindFirstChild("WaveSpawnTouch") or
+                               (WorldEnemys and WorldEnemys:FindFirstChild("WaveSpawnTouch"))
 
     local HasActiveWaveInterest = false
 
     if WaveSpawnTouch then
         for _, Zone in ipairs(WaveSpawnTouch:GetChildren()) do
             if Zone:IsA("BasePart") then
-                local TouchInterest =
-                    Zone:FindFirstChildOfClass("TouchInterest")
-                    or Zone:FindFirstChildOfClass("TouchTransmitter")
+                local TouchInterest = Zone:FindFirstChildOfClass("TouchInterest") or
+                                          Zone:FindFirstChildOfClass("TouchTransmitter")
 
                 if TouchInterest then
                     HasActiveWaveInterest = true
@@ -883,8 +995,7 @@ local function TeleportToNextStagePortal()
     if WaveSpawnTouch and HasActiveWaveInterest then
         local CurrentTime = os.clock()
 
-        if CurrentTime - LastWaveTriggerAttempt
-            < WAVE_TRIGGER_COOLDOWN then
+        if CurrentTime - LastWaveTriggerAttempt < WAVE_TRIGGER_COOLDOWN then
             return
         end
 
@@ -893,16 +1004,13 @@ local function TeleportToNextStagePortal()
 
         for _, Zone in ipairs(WaveSpawnTouch:GetChildren()) do
             if Zone:IsA("BasePart") then
-                local TouchInterest =
-                    Zone:FindFirstChildOfClass("TouchInterest")
-                    or Zone:FindFirstChildOfClass("TouchTransmitter")
+                local TouchInterest = Zone:FindFirstChildOfClass("TouchInterest") or
+                                          Zone:FindFirstChildOfClass("TouchTransmitter")
 
                 if TouchInterest then
-                    local Distance =
-                        (MyRoot.Position - Zone.Position).Magnitude
+                    local Distance = (MyRoot.Position - Zone.Position).Magnitude
 
-                    if Distance < ClosestZoneDistance
-                        and Distance <= 9999 then
+                    if Distance < ClosestZoneDistance and Distance <= 9999 then
                         ClosestZoneDistance = Distance
                         ActiveTouchZone = Zone
                     end
@@ -913,35 +1021,21 @@ local function TeleportToNextStagePortal()
         if ActiveTouchZone then
             LastWaveTriggerAttempt = CurrentTime
 
-            print(
-                "🌊 [SmartTrigger] Mengunci Wave Aktif: "
-                .. ActiveTouchZone:GetFullName()
-            )
+            print("🌊 [SmartTrigger] Mengunci Wave Aktif: " .. ActiveTouchZone:GetFullName())
 
-            local TargetPosition = Vector3.new(
-                ActiveTouchZone.Position.X,
-                MyRoot.Position.Y,
-                ActiveTouchZone.Position.Z
-            )
+            local TargetPosition =
+                Vector3.new(ActiveTouchZone.Position.X, MyRoot.Position.Y, ActiveTouchZone.Position.Z)
 
             MyRoot.CFrame = CFrame.new(TargetPosition)
             MyRoot.AssemblyLinearVelocity = Vector3.zero
             MyRoot.AssemblyAngularVelocity = Vector3.zero
 
             if firetouchinterest then
-                firetouchinterest(
-                    MyRoot,
-                    ActiveTouchZone,
-                    0
-                )
+                firetouchinterest(MyRoot, ActiveTouchZone, 0)
 
                 task.wait(0.02)
 
-                firetouchinterest(
-                    MyRoot,
-                    ActiveTouchZone,
-                    1
-                )
+                firetouchinterest(MyRoot, ActiveTouchZone, 1)
             end
 
             task.wait(0.5)
@@ -969,26 +1063,22 @@ local function TeleportToNextStagePortal()
 
     for _, Object in ipairs(workspace:GetDescendants()) do
         if Object:IsA("BasePart") then
-            local HasTrigger =
-                Object:FindFirstChildOfClass("TouchTransmitter")
-                or Object:FindFirstChildOfClass("TouchInterest")
-                or Object:FindFirstChildOfClass("ProximityPrompt")
+            local HasTrigger = Object:FindFirstChildOfClass("TouchTransmitter") or
+                                   Object:FindFirstChildOfClass("TouchInterest") or
+                                   Object:FindFirstChildOfClass("ProximityPrompt")
 
             if HasTrigger then
-                local DistanceToPortal =
-                    (MyRoot.Position - Object.Position).Magnitude
+                local DistanceToPortal = (MyRoot.Position - Object.Position).Magnitude
 
                 if DistanceToPortal <= MaxPortalDistance then
                     local CurrentScore = 0
 
-                    local LowerName =
-                        string.lower(Object.Name)
+                    local LowerName = string.lower(Object.Name)
 
                     local ParentName = ""
 
                     if Object.Parent then
-                        ParentName =
-                            string.lower(Object.Parent.Name)
+                        ParentName = string.lower(Object.Parent.Name)
                     end
 
                     -- Abaikan collision part umum
@@ -997,34 +1087,22 @@ local function TeleportToNextStagePortal()
                     end
 
                     -- Hindari MapTeleport pada endless tower
-                    if IsEndlessTower
-                        and string.find(
-                            LowerName,
-                            "mapteleport"
-                        ) then
+                    if IsEndlessTower and string.find(LowerName, "mapteleport") then
                         CurrentScore = -100
                     end
 
                     if CurrentScore >= 0 then
-                        if string.find(LowerName, "portal")
-                            or string.find(ParentName, "portal")
-                            or string.find(LowerName, "door")
-                            or string.find(ParentName, "door")
-                            or string.find(LowerName, "gate")
-                            or string.find(ParentName, "gate")
-                            or string.find(LowerName, "pintu")
-                            or string.find(ParentName, "pintu") then
+                        if string.find(LowerName, "portal") or string.find(ParentName, "portal") or
+                            string.find(LowerName, "door") or string.find(ParentName, "door") or
+                            string.find(LowerName, "gate") or string.find(ParentName, "gate") or
+                            string.find(LowerName, "pintu") or string.find(ParentName, "pintu") then
 
                             CurrentScore = CurrentScore + 10
 
-                        elseif string.find(LowerName, "next")
-                            or string.find(ParentName, "next")
-                            or string.find(LowerName, "exit")
-                            or string.find(ParentName, "exit")
-                            or string.find(LowerName, "finish")
-                            or string.find(ParentName, "finish")
-                            or string.find(LowerName, "teleport")
-                            or string.find(ParentName, "teleport") then
+                        elseif string.find(LowerName, "next") or string.find(ParentName, "next") or
+                            string.find(LowerName, "exit") or string.find(ParentName, "exit") or
+                            string.find(LowerName, "finish") or string.find(ParentName, "finish") or
+                            string.find(LowerName, "teleport") or string.find(ParentName, "teleport") then
 
                             CurrentScore = CurrentScore + 4
                         end
@@ -1036,13 +1114,11 @@ local function TeleportToNextStagePortal()
                             CurrentScore = CurrentScore + 2
                         end
 
-                        if Object.Material
-                            == Enum.Material.Neon then
+                        if Object.Material == Enum.Material.Neon then
                             CurrentScore = CurrentScore + 2
                         end
 
-                        if Object.Size.Y > 4
-                            and Object.Size.X > 4 then
+                        if Object.Size.Y > 4 and Object.Size.X > 4 then
                             CurrentScore = CurrentScore + 1
                         end
                     end
@@ -1052,9 +1128,7 @@ local function TeleportToNextStagePortal()
                         BestPortalPart = Object
                         ClosestDistance = DistanceToPortal
 
-                    elseif CurrentScore == HighestScore
-                        and CurrentScore > 0
-                        and DistanceToPortal < ClosestDistance then
+                    elseif CurrentScore == HighestScore and CurrentScore > 0 and DistanceToPortal < ClosestDistance then
 
                         BestPortalPart = Object
                         ClosestDistance = DistanceToPortal
@@ -1071,8 +1145,7 @@ local function TeleportToNextStagePortal()
     end
 
     -- Tidak menemukan portal valid
-    if not BestPortalPart
-        or HighestScore < RequiredScore then
+    if not BestPortalPart or HighestScore < RequiredScore then
 
         if IsEndlessTower then
             IsEnteringPortal = false
@@ -1098,20 +1171,10 @@ local function TeleportToNextStagePortal()
     LastPortalPosition = BestPortalPart.Position
     LastPortalAttemptTime = os.clock()
 
-    print(
-        "🚪 [Portal] Sukses Mengunci Portal Utama: "
-        .. BestPortalPart:GetFullName()
-        .. " (Skor: "
-        .. tostring(HighestScore)
-        .. ", Jarak: "
-        .. string.format("%.1f", ClosestDistance)
-        .. ")"
-    )
+    print("🚪 [Portal] Sukses Mengunci Portal Utama: " .. BestPortalPart:GetFullName() .. " (Skor: " ..
+              tostring(HighestScore) .. ", Jarak: " .. string.format("%.1f", ClosestDistance) .. ")")
 
-    TriggerPortalInteraction(
-        MyRoot,
-        BestPortalPart
-    )
+    TriggerPortalInteraction(MyRoot, BestPortalPart)
 
     IsEnteringPortal = false
 
@@ -1132,11 +1195,17 @@ end
 
 -- INTERCEPTOR SCAN REPLAY DEEP AREA
 local function IsGuiVisible(obj)
-    if not obj or not obj.Parent then return false end
-    if obj:IsA("GuiObject") and (not obj.Visible or obj.AbsolutePosition.Y <= 0) then return false end
+    if not obj or not obj.Parent then
+        return false
+    end
+    if obj:IsA("GuiObject") and (not obj.Visible or obj.AbsolutePosition.Y <= 0) then
+        return false
+    end
     local parent = obj.Parent
     while parent and parent ~= game do
-        if parent:IsA("GuiObject") and not parent.Visible then return false end
+        if parent:IsA("GuiObject") and not parent.Visible then
+            return false
+        end
         parent = parent.Parent
     end
     return true
@@ -1171,8 +1240,11 @@ local function FindVisibleButtonByText(guiObjects, textPattern)
         elseif obj:IsA("TextLabel") then
             local textLower = string.lower(obj.Text)
             if IsGuiVisible(obj) and string.find(textLower, textPattern) then
-                local parentButton = obj:FindFirstAncestorWhichIsA("TextButton") or obj:FindFirstAncestorWhichIsA("ImageButton") or obj.Parent
-                if IsGuiVisible(parentButton) then return parentButton end
+                local parentButton = obj:FindFirstAncestorWhichIsA("TextButton") or
+                                         obj:FindFirstAncestorWhichIsA("ImageButton") or obj.Parent
+                if IsGuiVisible(parentButton) then
+                    return parentButton
+                end
             end
         end
     end
@@ -1193,9 +1265,13 @@ end
 
 local function ScanAndHandleDeath()
     local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
-    if not PlayerGui then return end
+    if not PlayerGui then
+        return
+    end
     local SemuaGui = PlayerGui:GetDescendants()
-    if not HasVisibleText(SemuaGui, "you died") then return end
+    if not HasVisibleText(SemuaGui, "you died") then
+        return
+    end
 
     local GiveUpButton = FindVisibleButtonByText(SemuaGui, "give up")
     if GiveUpButton then
@@ -1207,21 +1283,28 @@ local function ScanAndHandleDeath()
 end
 
 local function ScanAndExecuteReplay()
-    if not _G.AutoReplay then return end
+    if not _G.AutoReplay then
+        return
+    end
     local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
-    if not PlayerGui then return end
-    
+    if not PlayerGui then
+        return
+    end
+
     local ReplayButton = nil
     local SemuaGui = PlayerGui:GetDescendants()
-    if not HasVictoryUi(SemuaGui) then return end
-    
+    if not HasVictoryUi(SemuaGui) then
+        return
+    end
+
     for i = 1, #SemuaGui do
         local obj = SemuaGui[i]
-        
+
         if obj:IsA("TextLabel") then
             local textLower = string.lower(obj.Text)
             if string.find(textLower, "play") and string.find(textLower, "again") then
-                local parentButton = obj:FindFirstAncestorWhichIsA("TextButton") or obj:FindFirstAncestorWhichIsA("ImageButton") or obj.Parent
+                local parentButton = obj:FindFirstAncestorWhichIsA("TextButton") or
+                                         obj:FindFirstAncestorWhichIsA("ImageButton") or obj.Parent
                 if IsGuiVisible(parentButton) then
                     ReplayButton = parentButton
                     break
@@ -1237,7 +1320,7 @@ local function ScanAndExecuteReplay()
             end
         end
     end
-    
+
     if ReplayButton then
         print("[Auto Replay] Reward settle delay sebelum re-run...")
         Target = nil
@@ -1267,20 +1350,20 @@ task.spawn(function()
                     TrackBreakableTarget(NewTarget, NewTargetKind)
                     TrackEggTarget(NewTarget, NewTargetKind)
                     TriggerEggIfNeeded(NewTarget, NewTargetKind)
-                    task.wait(0.5) 
+                    task.wait(0.5)
                 else
                     Target = nil
                     TargetKind = nil
                     IsEgg = false
                     pcall(ScanAndHandleDeath)
-                    
+
                     if _G.AutoReplay then
                         pcall(ScanAndExecuteReplay)
                     end
-                    
+
                     if _G.AutoProgressStage and not IsEnteringPortal and not PortalCooldown then
                         local CurrentTime = os.clock()
-                        if (CurrentTime - LastEnemySeen) >= 4.0 and (CurrentTime - LastPortalCheck) >= 1.5 then 
+                        if (CurrentTime - LastEnemySeen) >= 4.0 and (CurrentTime - LastPortalCheck) >= 1.5 then
                             LastPortalCheck = CurrentTime
                             pcall(TeleportToNextStagePortal)
                         end
@@ -1301,8 +1384,12 @@ RunService.Heartbeat:Connect(function(dt)
     local Character = LocalPlayer.Character
     local MyRoot = Character and Character:FindFirstChild("HumanoidRootPart")
     local MyHumanoid = Character and Character:FindFirstChild("Humanoid")
-    if not MyRoot or not MyHumanoid or IsEnteringPortal or not _G.AutoFarm then return end
-    if IsExtractingEgg then return end
+    if not MyRoot or not MyHumanoid or IsEnteringPortal or not _G.AutoFarm then
+        return
+    end
+    if IsExtractingEgg then
+        return
+    end
     if not Target or not Target.Parent then
         Target = nil
         TargetKind = nil
@@ -1323,37 +1410,43 @@ RunService.Heartbeat:Connect(function(dt)
     local CurrentHeight = _G.TinggiMelayang
     local TargetPos = Target.Position
     local FinalY = TargetPos.Y
-    
+
     if _G.UndergroundMode then
         CurrentRadius = _G.RadiusPutar
-        CurrentHeight = -(_G.TinggiMelayang) 
+        CurrentHeight = -(_G.TinggiMelayang)
         RaycastParamsInstance.FilterDescendantsInstances = {Target.Parent, Character}
         local GroundRay = workspace:Raycast(TargetPos, Vector3.new(0, -30, 0), RaycastParamsInstance)
-        if GroundRay then FinalY = GroundRay.Position.Y + CurrentHeight else FinalY = TargetPos.Y + CurrentHeight end
+        if GroundRay then
+            FinalY = GroundRay.Position.Y + CurrentHeight
+        else
+            FinalY = TargetPos.Y + CurrentHeight
+        end
     else
         CurrentRadius = _G.RadiusPutar
         CurrentHeight = _G.TinggiMelayang
         FinalY = TargetPos.Y + CurrentHeight
     end
-    
+
     SudutPutar = SudutPutar + (dt * _G.KecepatanPutar)
     local OffsetX = math.sin(SudutPutar) * CurrentRadius
     local OffsetZ = math.cos(SudutPutar) * CurrentRadius
     local FinalPosition = Vector3.new(TargetPos.X + OffsetX, FinalY, TargetPos.Z + OffsetZ)
-    
+
     if _G.UndergroundMode then
         MyRoot.CFrame = CFrame.new(FinalPosition) * CFrame.Angles(math.rad(90), 0, 0)
     else
         MyRoot.CFrame = CFrame.new(FinalPosition) * CFrame.Angles(math.rad(-90), 0, 0)
     end
-    
+
     if not IsExtractingEgg and not IsSwitchPending then
         local CurrentDistance = (MyRoot.Position - Target.Position).Magnitude
         if CurrentDistance <= _G.KillAuraRadius then
             VirtualUser:CaptureController()
             VirtualUser:ClickButton1(Vector2.new(0, 0))
             local ToolInChar = Character:FindFirstChildOfClass("Tool")
-            if ToolInChar then ToolInChar:Activate() end
+            if ToolInChar then
+                ToolInChar:Activate()
+            end
         end
     end
 end)
@@ -1361,11 +1454,13 @@ end)
 RunService.Stepped:Connect(function()
     if _G.AutoFarm and LocalPlayer.Character then
         for _, part in pairs(LocalPlayer.Character:GetChildren()) do
-            if part:IsA("BasePart") then 
-                part.CanCollide = false 
+            if part:IsA("BasePart") then
+                part.CanCollide = false
                 if _G.SemiGodMode then
                     local transmitter = part:FindFirstChildOfClass("TouchTransmitter")
-                    if transmitter then transmitter:Destroy() end
+                    if transmitter then
+                        transmitter:Destroy()
+                    end
                 end
             end
         end
@@ -1381,13 +1476,16 @@ local ModeButton = Instance.new("TextButton")
 local ReplayButtonToggle = Instance.new("TextButton") -- [BARU] Tombol Replay Toggle
 local ForgeButtonToggle = Instance.new("TextButton") -- [BARU] Tombol UI Perfect Forge
 local AutoBuyButtonToggle = Instance.new("TextButton")
+local AutoSellButtonToggle = Instance.new("TextButton")
 local LabelHeight = Instance.new("TextLabel")
 local SliderHeightFrame = Instance.new("Frame")
 local SliderHeightButton = Instance.new("TextButton")
 StatsLabel = Instance.new("TextLabel")
 
 local OldGui = LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("IronSoulDualMenu")
-if OldGui then OldGui:Destroy() end
+if OldGui then
+    OldGui:Destroy()
+end
 
 ScreenGui.Name = "IronSoulDualMenu"
 ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
@@ -1396,9 +1494,9 @@ ScreenGui.ResetOnSpawn = false
 -- 1. Tombol Utama (SCRIPT ON/OFF)
 MasterButton.Name = "MasterButton"
 MasterButton.Parent = ScreenGui
-MasterButton.BackgroundColor3 = Color3.fromRGB(0, 170, 0) 
-MasterButton.Position = UDim2.new(0.05, 0, 0.2, 0)         
-MasterButton.Size = UDim2.new(0, 160, 0, 40)               
+MasterButton.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+MasterButton.Position = UDim2.new(0.05, 0, 0.2, 0)
+MasterButton.Size = UDim2.new(0, 160, 0, 40)
 MasterButton.Font = Enum.Font.SourceSansBold
 MasterButton.Text = "SCRIPT: ON"
 MasterButton.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -1409,8 +1507,8 @@ MasterButton.BorderSizePixel = 2
 ModeButton.Name = "ModeButton"
 ModeButton.Parent = ScreenGui
 ModeButton.BackgroundColor3 = _G.UndergroundMode and Color3.fromRGB(0, 85, 255) or Color3.fromRGB(135, 0, 255)
-ModeButton.Position = UDim2.new(0.05, 0, 0.27, 0)         
-ModeButton.Size = UDim2.new(0, 160, 0, 40)               
+ModeButton.Position = UDim2.new(0.05, 0, 0.27, 0)
+ModeButton.Size = UDim2.new(0, 160, 0, 40)
 ModeButton.Font = Enum.Font.SourceSansBold
 ModeButton.Text = _G.UndergroundMode and "MODE: UNDERGROUND" or "MODE: ABOVE MONSTER"
 ModeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -1422,7 +1520,7 @@ ReplayButtonToggle.Name = "ReplayButtonToggle"
 ReplayButtonToggle.Parent = ScreenGui
 ReplayButtonToggle.BackgroundColor3 = _G.AutoReplay and Color3.fromRGB(0, 150, 75) or Color3.fromRGB(180, 40, 40) -- Hijau gelap bawaan aktif
 ReplayButtonToggle.Position = UDim2.new(0.05, 0, 0.34, 0) -- Berada tepat di bawah tombol mode        
-ReplayButtonToggle.Size = UDim2.new(0, 160, 0, 40)               
+ReplayButtonToggle.Size = UDim2.new(0, 160, 0, 40)
 ReplayButtonToggle.Font = Enum.Font.SourceSansBold
 ReplayButtonToggle.Text = _G.AutoReplay and "AUTO REPLAY: YES" or "AUTO REPLAY: NO"
 ReplayButtonToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -1458,7 +1556,7 @@ ForgeButtonToggle.Name = "ForgeButtonToggle"
 ForgeButtonToggle.Parent = ScreenGui
 ForgeButtonToggle.BackgroundColor3 = _G.PerfectForge and Color3.fromRGB(150, 120, 0) or Color3.fromRGB(120, 30, 30) -- Warna Emas/Oranye gelap bawaan aktif
 ForgeButtonToggle.Position = UDim2.new(0.05, 0, 0.41, 40) -- Berada tepat di bawah slider Height        
-ForgeButtonToggle.Size = UDim2.new(0, 160, 0, 40)               
+ForgeButtonToggle.Size = UDim2.new(0, 160, 0, 40)
 ForgeButtonToggle.Font = Enum.Font.SourceSansBold
 ForgeButtonToggle.Text = _G.PerfectForge and "PERFECT FORGE: YES" or "PERFECT FORGE: NO"
 ForgeButtonToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -1476,11 +1574,22 @@ AutoBuyButtonToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
 AutoBuyButtonToggle.TextSize = 14
 AutoBuyButtonToggle.BorderSizePixel = 2
 
+AutoSellButtonToggle.Name = "AutoSellButtonToggle"
+AutoSellButtonToggle.Parent = ScreenGui
+AutoSellButtonToggle.BackgroundColor3 = _G.AutoSell and Color3.fromRGB(0, 150, 75) or Color3.fromRGB(180, 40, 40)
+AutoSellButtonToggle.Position = UDim2.new(0.05, 0, 0.41, 136)
+AutoSellButtonToggle.Size = UDim2.new(0, 160, 0, 40)
+AutoSellButtonToggle.Font = Enum.Font.SourceSansBold
+AutoSellButtonToggle.Text = _G.AutoSell and "AUTO SELL: YES" or "AUTO SELL: NO"
+AutoSellButtonToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+AutoSellButtonToggle.TextSize = 14
+AutoSellButtonToggle.BorderSizePixel = 2
+
 StatsLabel.Name = "StatsLabel"
 StatsLabel.Parent = ScreenGui
 StatsLabel.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
 StatsLabel.BackgroundTransparency = 0.15
-StatsLabel.Position = UDim2.new(0.05, 0, 0.41, 136)
+StatsLabel.Position = UDim2.new(0.05, 0, 0.41, 184)
 StatsLabel.Size = UDim2.new(0, 160, 0, 48)
 StatsLabel.Font = Enum.Font.SourceSansBold
 StatsLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -1506,7 +1615,8 @@ local function IsSliderInput(input)
 end
 
 local function SliderPercent(input)
-    return math.clamp((input.Position.X - SliderHeightFrame.AbsolutePosition.X) / SliderHeightFrame.AbsoluteSize.X, 0, 1)
+    return
+        math.clamp((input.Position.X - SliderHeightFrame.AbsolutePosition.X) / SliderHeightFrame.AbsoluteSize.X, 0, 1)
 end
 
 local function UpdateActiveSlider(input)
@@ -1537,7 +1647,8 @@ UserInputService.InputEnded:Connect(function(input)
 end)
 
 UserInputService.InputChanged:Connect(function(input)
-    if ActiveSlider and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+    if ActiveSlider and
+        (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
         UpdateActiveSlider(input)
     end
 end)
@@ -1549,7 +1660,7 @@ MasterButton.MouseButton1Click:Connect(function()
     if _G.AutoFarm then
         _G.AutoFarm = false
         MasterButton.Text = "SCRIPT: OFF"
-        MasterButton.BackgroundColor3 = Color3.fromRGB(170, 0, 0) 
+        MasterButton.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
         Target = nil
         TargetKind = nil
         IsEgg = false
@@ -1558,12 +1669,12 @@ MasterButton.MouseButton1Click:Connect(function()
             MyRoot.CFrame = CFrame.new(MyRoot.Position.X, SkyY, MyRoot.Position.Z)
         end
     else
-        Target = nil 
+        Target = nil
         TargetKind = nil
         IsEgg = false
         _G.AutoFarm = true
         MasterButton.Text = "SCRIPT: ON"
-        MasterButton.BackgroundColor3 = Color3.fromRGB(0, 170, 0) 
+        MasterButton.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
     end
 end)
 
@@ -1571,11 +1682,11 @@ ModeButton.MouseButton1Click:Connect(function()
     if _G.UndergroundMode then
         _G.UndergroundMode = false
         ModeButton.Text = "MODE: ABOVE MONSTER"
-        ModeButton.BackgroundColor3 = Color3.fromRGB(135, 0, 255) 
+        ModeButton.BackgroundColor3 = Color3.fromRGB(135, 0, 255)
     else
         _G.UndergroundMode = true
         ModeButton.Text = "MODE: UNDERGROUND"
-        ModeButton.BackgroundColor3 = Color3.fromRGB(0, 85, 255) 
+        ModeButton.BackgroundColor3 = Color3.fromRGB(0, 85, 255)
     end
     SaveConfig()
 end)
@@ -1613,6 +1724,18 @@ AutoBuyButtonToggle.MouseButton1Click:Connect(function()
     else
         AutoBuyButtonToggle.Text = "AUTO BUY: NO"
         AutoBuyButtonToggle.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
+    end
+    SaveConfig()
+end)
+
+AutoSellButtonToggle.MouseButton1Click:Connect(function()
+    _G.AutoSell = not _G.AutoSell
+    if _G.AutoSell then
+        AutoSellButtonToggle.Text = "AUTO SELL: YES"
+        AutoSellButtonToggle.BackgroundColor3 = Color3.fromRGB(0, 150, 75)
+    else
+        AutoSellButtonToggle.Text = "AUTO SELL: NO"
+        AutoSellButtonToggle.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
     end
     SaveConfig()
 end)
