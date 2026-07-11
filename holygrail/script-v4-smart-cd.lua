@@ -10,6 +10,7 @@ local RunService = game:GetService("RunService")
 local GuiService = game:GetService("GuiService")
 local UserInputService = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local FolderNama = "IronSoulConfig"
 local FileNama = FolderNama .. "/YasirConfigV3.json"
@@ -18,7 +19,8 @@ local Config = {
     TinggiMelayang = 5,
     UndergroundMode = true,
     AutoReplay = true,
-    PerfectForge = true
+    PerfectForge = true,
+    AutoBuy = false
 }
 
 local function ClampNumber(value, minimum, maximum, fallback)
@@ -44,6 +46,7 @@ local function LoadConfig()
     Config.UndergroundMode = Config.UndergroundMode ~= false
     Config.AutoReplay = Config.AutoReplay ~= false
     Config.PerfectForge = Config.PerfectForge ~= false
+    Config.AutoBuy = Config.AutoBuy == true
 end
 
 local function SaveConfig()
@@ -51,6 +54,7 @@ local function SaveConfig()
     Config.UndergroundMode = _G.UndergroundMode
     Config.AutoReplay = _G.AutoReplay
     Config.PerfectForge = _G.PerfectForge
+    Config.AutoBuy = _G.AutoBuy
     local Berhasil, HasilJSON = pcall(function() return HttpService:JSONEncode(Config) end)
     if Berhasil and writefile then
         pcall(function()
@@ -74,6 +78,7 @@ _G.AutoProgressStage = true
 _G.AutoReplay = Config.AutoReplay -- Mengontrol status replay otomatis secara global
 _G.SemiGodMode = true        
 _G.PerfectForge = Config.PerfectForge
+_G.AutoBuy = Config.AutoBuy
 
 local SudutPutar = 0
 local Target = nil
@@ -98,6 +103,58 @@ local LastEnemySeen = os.clock()
 local MaxPortalDistance = 250 
 local RaycastParamsInstance = RaycastParams.new()
 RaycastParamsInstance.FilterType = Enum.RaycastFilterType.Exclude
+local AutoBuyWantedItemIds = {
+    LuckPotion_1 = true,
+    DropPotion_1 = true,
+    GoldPotion_1 = true
+}
+local AutoBuyDelay = 0.55
+local ConsumableShopUtilModule = nil
+local ConsumableShopRemoteEvent = nil
+
+local function GetConsumableShopUtilModule()
+    if not ConsumableShopUtilModule then
+        ConsumableShopUtilModule = ReplicatedStorage:WaitForChild("Framework")
+            :WaitForChild("Features")
+            :WaitForChild("ConsumableShopSystem")
+            :WaitForChild("ConsumableShopUtil")
+    end
+    return ConsumableShopUtilModule
+end
+
+local function GetConsumableShopRemoteEvent()
+    if not ConsumableShopRemoteEvent then
+        ConsumableShopRemoteEvent = GetConsumableShopUtilModule():WaitForChild("RemoteEvent")
+    end
+    return ConsumableShopRemoteEvent
+end
+
+local function GetConsumableShopUtil()
+    return require(GetConsumableShopUtilModule())
+end
+
+local function TryAutoBuyGoldShopOnce()
+    local Snapshot = GetConsumableShopUtil():GetShopSnapshot(LocalPlayer, "Gold")
+    local Items = Snapshot and Snapshot.Items
+    if type(Items) ~= "table" then return end
+
+    local RemoteEvent = GetConsumableShopRemoteEvent()
+    for ItemKey, Item in pairs(Items) do
+        if type(Item) == "table" and Item.State == "normal" and AutoBuyWantedItemIds[Item.ItemId] then
+            RemoteEvent:FireServer("BuyShopItem", "Gold", ItemKey)
+            task.wait(AutoBuyDelay)
+        end
+    end
+end
+
+task.spawn(function()
+    while true do
+        task.wait(AutoBuyDelay)
+        if _G.AutoBuy then
+            pcall(TryAutoBuyGoldShopOnce)
+        end
+    end
+end)
 
 -- =========================================================================
 -- SYSTEM UTILITY: [BARU] PERFECT FORGE MODULE VIA METAMETHOD INJECTION
@@ -1323,6 +1380,7 @@ local MasterButton = Instance.new("TextButton")
 local ModeButton = Instance.new("TextButton")
 local ReplayButtonToggle = Instance.new("TextButton") -- [BARU] Tombol Replay Toggle
 local ForgeButtonToggle = Instance.new("TextButton") -- [BARU] Tombol UI Perfect Forge
+local AutoBuyButtonToggle = Instance.new("TextButton")
 local LabelHeight = Instance.new("TextLabel")
 local SliderHeightFrame = Instance.new("Frame")
 local SliderHeightButton = Instance.new("TextButton")
@@ -1407,11 +1465,22 @@ ForgeButtonToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
 ForgeButtonToggle.TextSize = 14
 ForgeButtonToggle.BorderSizePixel = 2
 
+AutoBuyButtonToggle.Name = "AutoBuyButtonToggle"
+AutoBuyButtonToggle.Parent = ScreenGui
+AutoBuyButtonToggle.BackgroundColor3 = _G.AutoBuy and Color3.fromRGB(0, 150, 75) or Color3.fromRGB(180, 40, 40)
+AutoBuyButtonToggle.Position = UDim2.new(0.05, 0, 0.41, 88)
+AutoBuyButtonToggle.Size = UDim2.new(0, 160, 0, 40)
+AutoBuyButtonToggle.Font = Enum.Font.SourceSansBold
+AutoBuyButtonToggle.Text = _G.AutoBuy and "AUTO BUY: YES" or "AUTO BUY: NO"
+AutoBuyButtonToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+AutoBuyButtonToggle.TextSize = 14
+AutoBuyButtonToggle.BorderSizePixel = 2
+
 StatsLabel.Name = "StatsLabel"
 StatsLabel.Parent = ScreenGui
 StatsLabel.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
 StatsLabel.BackgroundTransparency = 0.15
-StatsLabel.Position = UDim2.new(0.05, 0, 0.41, 88)
+StatsLabel.Position = UDim2.new(0.05, 0, 0.41, 136)
 StatsLabel.Size = UDim2.new(0, 160, 0, 48)
 StatsLabel.Font = Enum.Font.SourceSansBold
 StatsLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -1532,6 +1601,18 @@ ForgeButtonToggle.MouseButton1Click:Connect(function()
     else
         ForgeButtonToggle.Text = "PERFECT FORGE: NO"
         ForgeButtonToggle.BackgroundColor3 = Color3.fromRGB(120, 30, 30) -- Merah tua saat mati
+    end
+    SaveConfig()
+end)
+
+AutoBuyButtonToggle.MouseButton1Click:Connect(function()
+    _G.AutoBuy = not _G.AutoBuy
+    if _G.AutoBuy then
+        AutoBuyButtonToggle.Text = "AUTO BUY: YES"
+        AutoBuyButtonToggle.BackgroundColor3 = Color3.fromRGB(0, 150, 75)
+    else
+        AutoBuyButtonToggle.Text = "AUTO BUY: NO"
+        AutoBuyButtonToggle.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
     end
     SaveConfig()
 end)
