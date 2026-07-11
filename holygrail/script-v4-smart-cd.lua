@@ -222,10 +222,14 @@ local SkillPriority = {"G", "R", "E", "Q"}
 local SkillDebug = _G.SkillDebug ~= false
 local SkillAnimationReleaseWindow = 0.2
 local WeaponSwitchCooldown = 3.1
+local WeaponSwitchAttemptInterval = 0.25
+local WeaponSwitchConfirmDelay = 0.1
 local NoSwitchSkillsReadyDelay = 0.4
 local LastSkillDebugAt = 0
 local LastWeaponSwitchAt = 0
+local LastWeaponSwitchAttemptAt = 0
 local NoSwitchSkillsReadySince = nil
+local IsSwitchPending = false
 
 local function DebugSkill(message)
     if not SkillDebug then return end
@@ -260,6 +264,31 @@ local function IsWeaponSwitchReady()
     local SwitchButton = Skills and Skills:FindFirstChild("SwitchWpn")
     local Cool = SwitchButton and SwitchButton:FindFirstChild("Cool")
     return SwitchButton ~= nil and (not Cool or Cool.Visible ~= true)
+end
+
+local function IsWeaponSwitchOnCooldown()
+    local Skills = GetSkillsFrame()
+    local SwitchButton = Skills and Skills:FindFirstChild("SwitchWpn")
+    local Cool = SwitchButton and SwitchButton:FindFirstChild("Cool")
+    return SwitchButton ~= nil and Cool ~= nil and Cool.Visible == true
+end
+
+local function GetEquippedWeaponUUID()
+    local EquippedWeapon = LocalPlayer:FindFirstChild("PlayerEquippedWeapon")
+    return EquippedWeapon and EquippedWeapon:GetAttribute("UUID") or nil
+end
+
+local function ConfirmWeaponSwitchSucceeded(previousSwitchTs, previousWeaponUUID)
+    local CurrentSwitchTs = LocalPlayer:GetAttribute("SwitchWpnLastTs")
+    if CurrentSwitchTs ~= previousSwitchTs then return true, "ts changed" end
+
+    local CurrentWeaponUUID = GetEquippedWeaponUUID()
+    if previousWeaponUUID and CurrentWeaponUUID and CurrentWeaponUUID ~= previousWeaponUUID then
+        return true, "uuid changed"
+    end
+
+    if IsWeaponSwitchOnCooldown() then return true, "cooldown visible" end
+    return false, "not accepted"
 end
 
 local function GetSwitchButtonDebugSummary()
@@ -300,19 +329,22 @@ local function IsSkillReady(key)
 end
 
 local function HasSwitchBlockingSkillReady()
-    return IsSkillReady("Q") or IsSkillReady("E") or IsSkillReady("G")
+    return IsSkillReady("Q") or IsSkillReady("E")
 end
 
 local function ShouldSwitchWeapon(currentTime)
     if HasSwitchBlockingSkillReady() then
         NoSwitchSkillsReadySince = nil
+        IsSwitchPending = false
         return false
     end
 
     NoSwitchSkillsReadySince = NoSwitchSkillsReadySince or currentTime
+    IsSwitchPending = currentTime - LastWeaponSwitchAt >= WeaponSwitchCooldown and IsWeaponSwitchReady()
+
+    if not IsSwitchPending then return false end
     if currentTime - NoSwitchSkillsReadySince < NoSwitchSkillsReadyDelay then return false end
-    if currentTime - LastWeaponSwitchAt < WeaponSwitchCooldown then return false end
-    return IsWeaponSwitchReady()
+    return currentTime - LastWeaponSwitchAttemptAt >= WeaponSwitchAttemptInterval
 end
 
 local function IsSkillAnimating()
@@ -342,6 +374,7 @@ task.spawn(function()
             local IsAnimating, AnimationName = IsSkillAnimating()
             if IsAnimating then
                 NoSwitchSkillsReadySince = nil
+                IsSwitchPending = false
                 DebugSkill("WAIT ANIM " .. tostring(AnimationName))
             else
                 local WaitReason = nil
@@ -350,6 +383,7 @@ task.spawn(function()
                     local Button = GetSkillButton(Key)
                     if IsSkillReady(Key) then
                         NoSwitchSkillsReadySince = nil
+                        IsSwitchPending = false
                         DebugSkill("PRESS " .. Key .. " -> " .. SkillButtonNames[Key])
                         PressKey(Key)
                         LastUsed[Key] = os.clock()
@@ -368,10 +402,22 @@ task.spawn(function()
                     end
                 end
                 if not PressedSkill and ShouldSwitchWeapon(CurrentTime) then
-                    NoSwitchSkillsReadySince = nil
-                    DebugSkillNow("SWITCH C " .. GetSwitchButtonDebugSummary() .. " " .. GetAnimationDebugSummary())
+                    local PreviousSwitchTs = LocalPlayer:GetAttribute("SwitchWpnLastTs")
+                    local PreviousWeaponUUID = GetEquippedWeaponUUID()
+                    DebugSkillNow("SWITCH C try " .. GetSwitchButtonDebugSummary() .. " " .. GetAnimationDebugSummary())
                     PressKey("C")
-                    LastWeaponSwitchAt = os.clock()
+                    LastWeaponSwitchAttemptAt = os.clock()
+                    task.wait(WeaponSwitchConfirmDelay)
+
+                    local SwitchSucceeded, SwitchReason = ConfirmWeaponSwitchSucceeded(PreviousSwitchTs, PreviousWeaponUUID)
+                    if SwitchSucceeded then
+                        NoSwitchSkillsReadySince = nil
+                        IsSwitchPending = false
+                        LastWeaponSwitchAt = os.clock()
+                        DebugSkillNow("SWITCH C accepted " .. SwitchReason)
+                    else
+                        DebugSkill("SWITCH C retry " .. SwitchReason)
+                    end
                     task.wait(0.15)
                 elseif WaitReason and not PressedSkill then
                     DebugSkill("WAIT CD " .. WaitReason)
@@ -379,6 +425,7 @@ task.spawn(function()
             end
         else
             NoSwitchSkillsReadySince = nil
+            IsSwitchPending = false
         end
     end
 end)
@@ -1243,7 +1290,7 @@ RunService.Heartbeat:Connect(function(dt)
         MyRoot.CFrame = CFrame.new(FinalPosition) * CFrame.Angles(math.rad(-90), 0, 0)
     end
     
-    if not IsExtractingEgg then
+    if not IsExtractingEgg and not IsSwitchPending then
         local CurrentDistance = (MyRoot.Position - Target.Position).Magnitude
         if CurrentDistance <= _G.KillAuraRadius then
             VirtualUser:CaptureController()
