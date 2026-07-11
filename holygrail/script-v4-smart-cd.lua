@@ -105,8 +105,7 @@ local RaycastParamsInstance = RaycastParams.new()
 RaycastParamsInstance.FilterType = Enum.RaycastFilterType.Exclude
 local AutoBuyWantedItemIds = {
     LuckPotion_1 = true,
-    DropPotion_1 = true,
-    GoldPotion_1 = true
+    DropPotion_1 = true
 }
 local AutoBuyDelay = 0.55
 local ConsumableShopUtilModule = nil
