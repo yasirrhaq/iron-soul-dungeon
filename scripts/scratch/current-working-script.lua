@@ -20,7 +20,8 @@ local Config = {
     AutoReplay = true,
     PerfectForge = true,
     AutoBuy = false,
-    AutoSell = false
+    AutoSell = false,
+    AutoSeasonBuy = false
 }
 
 local function ClampNumber(value, minimum, maximum, fallback)
@@ -56,6 +57,7 @@ local function LoadConfig()
     Config.PerfectForge = Config.PerfectForge ~= false
     Config.AutoBuy = Config.AutoBuy == true
     Config.AutoSell = Config.AutoSell == true
+    Config.AutoSeasonBuy = Config.AutoSeasonBuy == true
 end
 
 local function SaveConfig()
@@ -65,6 +67,7 @@ local function SaveConfig()
     Config.PerfectForge = _G.PerfectForge
     Config.AutoBuy = _G.AutoBuy
     Config.AutoSell = _G.AutoSell
+    Config.AutoSeasonBuy = _G.AutoSeasonBuy
     local Berhasil, HasilJSON = pcall(function()
         return HttpService:JSONEncode(Config)
     end)
@@ -94,6 +97,7 @@ _G.SemiGodMode = true
 _G.PerfectForge = Config.PerfectForge
 _G.AutoBuy = Config.AutoBuy
 _G.AutoSell = Config.AutoSell
+_G.AutoSeasonBuy = Config.AutoSeasonBuy
 
 local SudutPutar = 0
 local Target = nil
@@ -122,7 +126,11 @@ local AutoBuyWantedItemIds = {
     LuckPotion_1 = true,
     DropPotion_1 = true
 }
+local AutoSeasonBuyWantedItemIds = {
+    SeasonTicket = true
+}
 local AutoBuyDelay = 0.55
+local AutoSeasonBuyDelay = 1.0
 local SellMaxRarity = 5
 local SellOres = {
     Corundum = true,
@@ -136,8 +144,16 @@ local KeepOres = {
     DarkBlossom = true
 }
 local AutoSellDelay = 5.0
+local AutoSellContextDelay = 0.25
 local ConsumableShopUtilModule = nil
 local ConsumableShopRemoteEvent = nil
+local SeasonShopRemoteEvent = nil
+local SeasonShopConfig = nil
+local SeasonUtilModule = nil
+local TaskRemoteEvent = nil
+local LastSeasonShopOpenRequest = 0
+local LastSeasonShopStateLogAt = 0
+local LastAutoSellContextRequest = 0
 local FrameworkModule = nil
 local ForgeRemoteFunction = nil
 
@@ -186,6 +202,166 @@ task.spawn(function()
     end
 end)
 
+local function GetSeasonShopRemoteEvent()
+    if not SeasonShopRemoteEvent then
+        SeasonShopRemoteEvent = ReplicatedStorage:WaitForChild("Framework"):WaitForChild("Features"):WaitForChild(
+            "SeasonSystem"):WaitForChild("SeasonUtil"):WaitForChild("RemoteEvent")
+    end
+    return SeasonShopRemoteEvent
+end
+
+local function GetSeasonShopConfig()
+    if not SeasonShopConfig then
+        SeasonShopConfig = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("ResSeasonShop"))
+    end
+    return SeasonShopConfig
+end
+
+local function GetSeasonUtil()
+    if not SeasonUtilModule then
+        SeasonUtilModule = require(ReplicatedStorage:WaitForChild("Framework")).Modules.SeasonUtil
+    end
+    return SeasonUtilModule
+end
+
+local function GetSeasonShopData()
+    return GetSeasonUtil():GetShopData(LocalPlayer)
+end
+
+local function RequestSeasonShopOpen()
+    local CurrentTime = os.clock()
+    if (CurrentTime - LastSeasonShopOpenRequest) < 10.0 then
+        return
+    end
+
+    LastSeasonShopOpenRequest = CurrentTime
+    print("[AutoSeasonBuy] Direct shop state unavailable; requesting ScreenSeasonPass data")
+    ReplicatedStorage:WaitForChild("Framework"):WaitForChild("Features"):WaitForChild("TaskSystem"):WaitForChild(
+        "TaskRE"):FireServer("UpdateTaskProgress", "OpenGUIWindow", "ScreenSeasonPass")
+end
+
+local function IsSeasonShopSlotBought(slot)
+    local Purchased = slot:FindFirstChild("Purchased")
+    if Purchased and Purchased:IsA("GuiObject") and Purchased.Visible then
+        return true
+    end
+
+    local BuyButton = slot:FindFirstChild("BuyBtn")
+    return BuyButton and BuyButton:IsA("GuiObject") and not BuyButton.Visible
+end
+
+local function IsSeasonShopIdBought(shopData, shopConfig, shopId)
+    local BuyCount = shopData and shopData.BuyCount
+    local Count = type(BuyCount) == "table" and tonumber(BuyCount[shopId]) or 0
+    local Limit = shopConfig.IsSpecial and tonumber(shopConfig.LimitTimes) or 1
+    return Count and Limit and Count >= Limit
+end
+
+local function TryBuySeasonShopId(shopData, shopId, source, shouldLogState)
+    local ShopConfig = GetSeasonShopConfig()[shopId]
+    if not ShopConfig then
+        return false
+    end
+
+    local IsWanted = AutoSeasonBuyWantedItemIds[ShopConfig.ItemId]
+    if shouldLogState or IsWanted then
+        print("[AutoSeasonBuy] Loaded season " .. tostring(source) .. " " .. tostring(shopId) .. " item " ..
+                  tostring(ShopConfig.ItemId) .. " price " .. tostring(ShopConfig.Price))
+    end
+    if not IsWanted then
+        return false
+    end
+    if IsSeasonShopIdBought(shopData, ShopConfig, shopId) then
+        print("[AutoSeasonBuy] Skip bought " .. tostring(ShopConfig.ItemId) .. " via " .. tostring(shopId))
+        return false
+    end
+
+    print("[AutoSeasonBuy] Buying " .. tostring(ShopConfig.ItemId) .. " via " .. tostring(shopId))
+    GetSeasonShopRemoteEvent():FireServer("BuySeasonShopItem", shopId)
+    task.wait(AutoSeasonBuyDelay)
+    return true
+end
+
+local function TryAutoBuySeasonShopByData()
+    local ShopData = GetSeasonShopData()
+    if type(ShopData) ~= "table" then
+        return false
+    end
+
+    local CurrentTime = os.clock()
+    local ShouldLogState = (CurrentTime - LastSeasonShopStateLogAt) >= 5.0
+    if ShouldLogState then
+        LastSeasonShopStateLogAt = CurrentTime
+    end
+
+    local FoundTarget = false
+    local NormalIds = ShopData.NormalIds
+    if type(NormalIds) == "table" then
+        for Slot, ShopId in pairs(NormalIds) do
+            FoundTarget = TryBuySeasonShopId(ShopData, ShopId, "slot " .. tostring(Slot), ShouldLogState) or FoundTarget
+        end
+    end
+    if ShopData.SpecialId then
+        FoundTarget = TryBuySeasonShopId(ShopData, ShopData.SpecialId, "special", ShouldLogState) or FoundTarget
+    end
+    if not FoundTarget and ShouldLogState then
+        print("[AutoSeasonBuy] No target item in season state; wanted RaceSpins or SeasonTicket")
+    end
+    return true
+end
+
+local function TryAutoBuySeasonShopByGui()
+    local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not PlayerGui then
+        return false
+    end
+
+    local Configs = GetSeasonShopConfig()
+    local SeenShopIds = {}
+    local HasSeasonShopSlot = false
+    local FoundTarget = false
+    for _, Obj in pairs(PlayerGui:GetDescendants()) do
+        local ShopId = Obj:GetAttribute("ShopId")
+        local ShopConfig = type(ShopId) == "string" and Configs[ShopId]
+        if ShopConfig and not SeenShopIds[ShopId] then
+            HasSeasonShopSlot = true
+            SeenShopIds[ShopId] = true
+            print("[AutoSeasonBuy] Loaded GUI slot " .. tostring(ShopId) .. " item " .. tostring(ShopConfig.ItemId) ..
+                      " price " .. tostring(ShopConfig.Price))
+            if AutoSeasonBuyWantedItemIds[ShopConfig.ItemId] and not IsSeasonShopSlotBought(Obj) then
+                FoundTarget = true
+                print("[AutoSeasonBuy] Buying " .. tostring(ShopConfig.ItemId) .. " via " .. tostring(ShopId))
+                GetSeasonShopRemoteEvent():FireServer("BuySeasonShopItem", ShopId)
+                task.wait(AutoSeasonBuyDelay)
+            end
+        end
+    end
+
+    if not HasSeasonShopSlot then
+        RequestSeasonShopOpen()
+    elseif not FoundTarget then
+        print("[AutoSeasonBuy] No target item in current GUI shop; wanted RaceSpins or SeasonTicket")
+    end
+    return HasSeasonShopSlot
+end
+
+local function TryAutoBuySeasonShopOnce()
+    if TryAutoBuySeasonShopByData() then
+        return
+    end
+
+    TryAutoBuySeasonShopByGui()
+end
+
+task.spawn(function()
+    while true do
+        task.wait(AutoSeasonBuyDelay)
+        if _G.AutoSeasonBuy then
+            pcall(TryAutoBuySeasonShopOnce)
+        end
+    end
+end)
+
 local function GetFrameworkModule()
     if not FrameworkModule then
         FrameworkModule = require(ReplicatedStorage:WaitForChild("Framework"))
@@ -201,26 +377,81 @@ local function GetForgeRemoteFunction()
     return ForgeRemoteFunction
 end
 
+local function GetTaskRemoteEvent()
+    if not TaskRemoteEvent then
+        TaskRemoteEvent = ReplicatedStorage:WaitForChild("Framework"):WaitForChild("Features"):WaitForChild("TaskSystem"):WaitForChild(
+            "TaskRE")
+    end
+    return TaskRemoteEvent
+end
+
+local function RequestAutoSellContext()
+    local CurrentTime = os.clock()
+    if (CurrentTime - LastAutoSellContextRequest) < 10.0 then
+        return
+    end
+
+    LastAutoSellContextRequest = CurrentTime
+    print("[AutoSell] Requesting ScreenEquipSell context")
+    local TaskRemote = GetTaskRemoteEvent()
+    TaskRemote:FireServer("UpdateTaskProgress", "DialogNpc", "EquipmentSellNpc1|1")
+    TaskRemote:FireServer("UpdateTaskProgress", "DialogNpc", "EquipmentSellNpc1|0")
+    TaskRemote:FireServer("UpdateTaskProgress", "OpenGUIWindow", "ScreenEquipSell")
+    TaskRemote:FireServer("UpdateTaskProgress", "OpenGUIWindow", "ScreenTips")
+    task.wait(AutoSellContextDelay)
+end
+
 local function TryAutoSellOresOnce()
     local Framework = GetFrameworkModule()
     local DataUtil = Framework.Modules.DataUtil
     local ForgeUtil = Framework.Modules.ForgeUtil
     local Ores = DataUtil:GetValue(LocalPlayer, {"Ores"}) or {}
     local SellList = {}
+    local BeforeCounts = {}
 
     for OreId, Count in pairs(Ores) do
         Count = tonumber(Count) or 0
         local Def = ForgeUtil:GetDef(OreId)
         local ShouldSell = (Def and Def.Rarity <= SellMaxRarity) or SellOres[OreId]
         if Count > 0 and ShouldSell and not KeepOres[OreId] then
-            print("[AutoSell] Selling " .. tostring(OreId) .. " x" .. tostring(Count) .. " rarity " ..
+            BeforeCounts[OreId] = Count
+            print("[AutoSell] Attempt " .. tostring(OreId) .. " x" .. tostring(Count) .. " rarity " ..
                       tostring(Def and Def.Rarity or "?"))
             table.insert(SellList, OreId)
         end
     end
 
-    if #SellList > 0 then
-        GetForgeRemoteFunction():InvokeServer("Sell", SellList)
+    if #SellList <= 0 then
+        return
+    end
+
+    RequestAutoSellContext()
+
+    local SellCall = "ForgeRF.Sell"
+    local Success, Result = pcall(function()
+        return GetForgeRemoteFunction():InvokeServer("Sell", SellList)
+    end)
+    if Success then
+        print("[AutoSell] " .. SellCall .. " result " .. tostring(Result))
+    else
+        print("[AutoSell] " .. SellCall .. " error " .. tostring(Result))
+        return
+    end
+
+    task.wait(0.35)
+    local AfterOres = DataUtil:GetValue(LocalPlayer, {"Ores"}) or {}
+    for _, OreId in pairs(SellList) do
+        local BeforeCount = BeforeCounts[OreId] or 0
+        local AfterCount = tonumber(AfterOres[OreId]) or 0
+        if AfterCount <= 0 then
+            print("[AutoSell] Confirmed sold " .. tostring(OreId))
+        elseif AfterCount < BeforeCount then
+            print("[AutoSell] Partially sold " .. tostring(OreId) .. " before " .. tostring(BeforeCount) ..
+                      " after " .. tostring(AfterCount))
+        else
+            print("[AutoSell] Still owned " .. tostring(OreId) .. " x" .. tostring(AfterCount) ..
+                      " after sell attempt")
+        end
     end
 end
 
@@ -1477,6 +1708,7 @@ local ReplayButtonToggle = Instance.new("TextButton") -- [BARU] Tombol Replay To
 local ForgeButtonToggle = Instance.new("TextButton") -- [BARU] Tombol UI Perfect Forge
 local AutoBuyButtonToggle = Instance.new("TextButton")
 local AutoSellButtonToggle = Instance.new("TextButton")
+local AutoSeasonBuyButtonToggle = Instance.new("TextButton")
 local LabelHeight = Instance.new("TextLabel")
 local SliderHeightFrame = Instance.new("Frame")
 local SliderHeightButton = Instance.new("TextButton")
@@ -1585,11 +1817,23 @@ AutoSellButtonToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
 AutoSellButtonToggle.TextSize = 14
 AutoSellButtonToggle.BorderSizePixel = 2
 
+AutoSeasonBuyButtonToggle.Name = "AutoSeasonBuyButtonToggle"
+AutoSeasonBuyButtonToggle.Parent = ScreenGui
+AutoSeasonBuyButtonToggle.BackgroundColor3 = _G.AutoSeasonBuy and Color3.fromRGB(0, 150, 75) or
+                                                 Color3.fromRGB(180, 40, 40)
+AutoSeasonBuyButtonToggle.Position = UDim2.new(0.05, 0, 0.41, 184)
+AutoSeasonBuyButtonToggle.Size = UDim2.new(0, 160, 0, 40)
+AutoSeasonBuyButtonToggle.Font = Enum.Font.SourceSansBold
+AutoSeasonBuyButtonToggle.Text = _G.AutoSeasonBuy and "SEASON BUY: YES" or "SEASON BUY: NO"
+AutoSeasonBuyButtonToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+AutoSeasonBuyButtonToggle.TextSize = 14
+AutoSeasonBuyButtonToggle.BorderSizePixel = 2
+
 StatsLabel.Name = "StatsLabel"
 StatsLabel.Parent = ScreenGui
 StatsLabel.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
 StatsLabel.BackgroundTransparency = 0.15
-StatsLabel.Position = UDim2.new(0.05, 0, 0.41, 184)
+StatsLabel.Position = UDim2.new(0.05, 0, 0.41, 232)
 StatsLabel.Size = UDim2.new(0, 160, 0, 48)
 StatsLabel.Font = Enum.Font.SourceSansBold
 StatsLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -1736,6 +1980,18 @@ AutoSellButtonToggle.MouseButton1Click:Connect(function()
     else
         AutoSellButtonToggle.Text = "AUTO SELL: NO"
         AutoSellButtonToggle.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
+    end
+    SaveConfig()
+end)
+
+AutoSeasonBuyButtonToggle.MouseButton1Click:Connect(function()
+    _G.AutoSeasonBuy = not _G.AutoSeasonBuy
+    if _G.AutoSeasonBuy then
+        AutoSeasonBuyButtonToggle.Text = "SEASON BUY: YES"
+        AutoSeasonBuyButtonToggle.BackgroundColor3 = Color3.fromRGB(0, 150, 75)
+    else
+        AutoSeasonBuyButtonToggle.Text = "SEASON BUY: NO"
+        AutoSeasonBuyButtonToggle.BackgroundColor3 = Color3.fromRGB(180, 40, 40)
     end
     SaveConfig()
 end)

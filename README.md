@@ -2,60 +2,55 @@
 
 Roblox Lua scripts for Iron Soul dungeon automation experiments.
 
-## Main Script
+## Active Script
 
-Use `base-script-v2.lua` for current testing.
+Use `holygrail/script-v5-full-run-dg.lua` for current full dungeon automation.
 
-Current features:
+Keep this path stable because external loaders/raw URLs may reference it.
 
-- Auto farm enemies with skill spam (`Q`, `E`, `R`) and melee clicks.
-- Underground / above-monster positioning toggle.
-- Auto stage portal progress with cooldown and enemy-empty delay.
-- Auto replay gated by visible `VICTORY` UI.
-- Dragon egg support from `workspace.DragonEgg`.
-- Chest support from `workspace.Chest*` (`Chest1`, `Chest2`, `Chest3`, etc.).
-- Dragon egg prompt trigger via `fireproximityprompt` when executor supports it.
-- Fallback egg interaction via `ProximityPrompt:InputHoldBegin()` / `InputHoldEnd()`.
-- UI counters for `CHEST DESTROYED` and `EGG TRIGGERED`.
+## Repository Layout
 
-## Script Map
-
-| File | Purpose |
+| Path | Purpose |
 | --- | --- |
-| `base-script-v2.lua` | Current active test script with replay, chest, and dragon egg handling. |
-| `base-script.lua` | Older base script reference. |
-| `raw-script.lua` | Older raw reference with safer portal behavior. |
-| `raw-script-v14.lua` | V14 raw reference. |
-| `auto-farm.lua` | Older auto farm script that worked for lobby/portal behavior. |
-| `auto-farm-v37.lua` | Dungeon-focused auto farm reference. |
-| `auto-farm-dungeon.lua` | Dungeon auto farm variant. |
-| `auto-farm-unified.lua` | Experimental Dungeon / Endless mode toggle script. |
 | `auto-load.lua` | Cloud loader bootstrap. |
-| `current-working-script.lua` | Working scratch/reference file. |
-| `experiment.lua` | Scratch experiment file. |
+| `holygrail/script-v5-full-run-dg.lua` | Current active full-run dungeon script. |
+| `scripts/base/` | Older base script line. |
+| `scripts/archive/auto-farm/` | Older auto-farm variants. |
+| `scripts/archive/holygrail/` | Older holygrail versions. |
+| `scripts/archive/raw/` | Raw/decompiled reference scripts. |
+| `scripts/scratch/` | Scratch experiments and one-off helpers. |
+| `tools/checks/` | PowerShell checks for script invariants. |
+| `research/dump/` | Decompiled modules, UI dumps, probes, notes. |
+| `docs/` | Design notes and specs. |
 
 ## Current Target Assumptions
 
 - Egg path: `workspace.DragonEgg`.
 - Chest paths: direct workspace children named `Chest1`, `Chest2`, `Chest3`, etc.
-- Egg activation is confirmed by `DragonEgg:GetAttribute("Active")`.
-- Egg broken state is checked with `DragonEgg:GetAttribute("Broken")`.
-- Egg damage is exposed through `DragonEgg:GetAttribute("HitDamage")` in the game client script.
+- Dungeon match-room opener uses `workspace.MatchRoom.Room1`-`Room4` touch portals.
+- Active auto-start target is `World3`, difficulty `10`, party size `1/1`.
 
 ## Testing Checklist
 
-1. Run `base-script-v2.lua` in executor.
-2. Keep `SCRIPT: ON`.
+1. Run `holygrail/script-v5-full-run-dg.lua` in executor.
+2. Keep `SCRIPT: ON` and `AUTO REPLAY: YES`.
 3. Confirm enemy farm still works.
-4. Confirm chest target increments `CHEST DESTROYED` only when a chest disappears.
-5. Confirm dragon egg target moves to ground and triggers prompt.
-6. Confirm `EGG TRIGGERED` increments only after `DragonEgg.Active` becomes true.
-7. Confirm replay clicks only after `VICTORY` UI appears.
+4. Confirm portal progression advances stages, not repeated same portal loops.
+5. Confirm full backpack returns to lobby, sells, touches free match-room portal, then creates `1/1` dungeon.
 
-## Local Syntax Check
+## Local Checks
+
+Syntax-check active script:
 
 ```powershell
-cmd /c npx -y luaparse base-script-v2.lua > nul && echo syntax-ok
+cmd /c npx -y luaparse holygrail/script-v5-full-run-dg.lua > nul && echo syntax-ok
 ```
 
-Use the same command for other Lua files when editing them.
+Run legacy base-script checks:
+
+```powershell
+.\tools\checks\check-safe-lobby.ps1
+.\tools\checks\check-ui-layout.ps1
+```
+
+Use the same `luaparse` command for other Lua files when editing them.

@@ -8,18 +8,72 @@ local VirtualInputManager = game:GetService("VirtualInputManager")
 local VirtualUser = game:GetService("VirtualUser")
 local RunService = game:GetService("RunService")
 local GuiService = game:GetService("GuiService")
+local UserInputService = game:GetService("UserInputService")
+local HttpService = game:GetService("HttpService")
+
+local FolderNama = "IronSoulConfig"
+local FileNama = FolderNama .. "/YasirConfigV3.json"
+
+local Config = {
+    TinggiMelayang = 5,
+    UndergroundMode = true,
+    AutoReplay = true,
+    PerfectForge = true
+}
+
+local function ClampNumber(value, minimum, maximum, fallback)
+    value = tonumber(value)
+    if not value then return fallback end
+    return math.clamp(value, minimum, maximum)
+end
+
+local function LoadConfig()
+    if readfile and isfile and isfile(FileNama) then
+        local BerhasilBaca, IsiFile = pcall(function() return readfile(FileNama) end)
+        if BerhasilBaca then
+            local BerhasilDecode, Data = pcall(function() return HttpService:JSONDecode(IsiFile) end)
+            if BerhasilDecode and type(Data) == "table" then
+                for Key, Value in pairs(Data) do
+                    if Config[Key] ~= nil then Config[Key] = Value end
+                end
+            end
+        end
+    end
+
+    Config.TinggiMelayang = ClampNumber(Config.TinggiMelayang, 5, 100, 5)
+    Config.UndergroundMode = Config.UndergroundMode ~= false
+    Config.AutoReplay = Config.AutoReplay ~= false
+    Config.PerfectForge = Config.PerfectForge ~= false
+end
+
+local function SaveConfig()
+    Config.TinggiMelayang = _G.TinggiMelayang
+    Config.UndergroundMode = _G.UndergroundMode
+    Config.AutoReplay = _G.AutoReplay
+    Config.PerfectForge = _G.PerfectForge
+    local Berhasil, HasilJSON = pcall(function() return HttpService:JSONEncode(Config) end)
+    if Berhasil and writefile then
+        pcall(function()
+            if makefolder then makefolder(FolderNama) end
+            writefile(FileNama, HasilJSON)
+        end)
+    end
+end
+
+LoadConfig()
 
 -- KONTROL SCRIPT MASTER
 _G.AutoFarm = true          
 _G.AutoSkill = true
 _G.RadiusPutar = 6          
-_G.TinggiMelayang = 5        
+_G.TinggiMelayang = Config.TinggiMelayang
 _G.KecepatanPutar = 4.0     
-_G.UndergroundMode = true   
-_G.KillAuraRadius = 45      
+_G.UndergroundMode = Config.UndergroundMode
+_G.KillAuraRadius = _G.TinggiMelayang + 40
 _G.AutoProgressStage = true  
-_G.AutoReplay = true         -- Mengontrol status replay otomatis secara global
+_G.AutoReplay = Config.AutoReplay -- Mengontrol status replay otomatis secara global
 _G.SemiGodMode = true        
+_G.PerfectForge = Config.PerfectForge
 
 local SudutPutar = 0
 local Target = nil
@@ -28,6 +82,11 @@ local IsEgg = false
 local IsExtractingEgg = false
 local LastTriggeredEgg = nil
 local EggLockEnd = 0
+local ChestDestroyedCount = 0
+local EggTriggeredCount = 0
+local CountedBreakables = {}
+local CountedEggTriggers = {}
+local StatsLabel = nil
 
 local LastJumpTime = 0
 local JumpInterval = 0.1 
@@ -37,6 +96,38 @@ local PortalCooldown = false
 local LastEnemySeen = os.clock()
 
 local MaxPortalDistance = 250 
+local RaycastParamsInstance = RaycastParams.new()
+RaycastParamsInstance.FilterType = Enum.RaycastFilterType.Exclude
+
+-- =========================================================================
+-- SYSTEM UTILITY: [BARU] PERFECT FORGE MODULE VIA METAMETHOD INJECTION
+-- =========================================================================
+local envRegistry = getfenv()
+local setBypass = envRegistry["hookmetamethod"]
+local getMethod = envRegistry["getnamecallmethod"]
+
+local oldCallback
+oldCallback = setBypass(game, "__namecall", function(self, ...)
+    local method = getMethod()
+    local args = {...}
+    
+    -- Hanya berjalan jika fitur di UI bernilai TRUE dan memanggil Remote ForgeRF
+    if _G.PerfectForge and self.Name == "ForgeRF" then
+        for i, arg in pairs(args) do
+            if type(arg) == "table" and arg.Rating ~= nil then
+                arg.Rating = 15 -- Memaksa rating perfect otomatis
+            end
+        end
+    end
+    
+    return oldCallback(self, unpack(args))
+end)
+
+local function UpdateStatsLabel()
+    if StatsLabel then
+        StatsLabel.Text = "CHEST DESTROYED: " .. ChestDestroyedCount .. "\nEGG TRIGGERED: " .. EggTriggeredCount
+    end
+end
 
 -- 1. FUNGSI ANTI-AFK
 if not _G.AntiAFK_Loaded then
@@ -86,6 +177,19 @@ local function HoldKey(key, seconds)
     end)
 end
 
+local function TriggerPrompt(prompt)
+    if not prompt then return false end
+    if fireproximityprompt then
+        fireproximityprompt(prompt)
+        return true
+    end
+
+    prompt:InputHoldBegin()
+    task.wait((prompt.HoldDuration or 3) + 0.1)
+    prompt:InputHoldEnd()
+    return true
+end
+
 -- FUNGSI HIT TOMBOL REPLAY VIA GUI SELECTION
 local function EksekusiKlikReplay(tombol)
     if not tombol then return end
@@ -111,8 +215,8 @@ local function EksekusiKlikReplay(tombol)
 end
 
 -- AUTO SKILL DENGAN COOLDOWN
-local LastUsed = {Q = 0, E = 0, R = 0}
-local Cooldowns = {Q = 1, E = 3, R = 5} 
+local LastUsed = {Q = 0, E = 0, R = 0, G = 0}
+local Cooldowns = {Q = 1, E = 3, R = 5, G = 7} 
 
 task.spawn(function()
     while true do
@@ -122,6 +226,7 @@ task.spawn(function()
             if (CurrentTime - LastUsed.Q) >= Cooldowns.Q then PressKey("Q") LastUsed.Q = CurrentTime end
             if (CurrentTime - LastUsed.E) >= Cooldowns.E then PressKey("E") LastUsed.E = CurrentTime end
             if (CurrentTime - LastUsed.R) >= Cooldowns.R then PressKey("R") LastUsed.R = CurrentTime end
+            if (CurrentTime - LastUsed.G) >= Cooldowns.G then PressKey("G") LastUsed.G = CurrentTime end
         end
     end
 end)
@@ -157,6 +262,93 @@ task.spawn(function()
 end)
 
 -- 3. SCANNING TARGET INTERNAL
+local function TrackBreakableTarget(target, kind)
+    if kind ~= "breakable" or not target then return end
+    local trackTarget = target:FindFirstAncestorWhichIsA("Model") or target
+    if CountedBreakables[trackTarget] then return end
+    CountedBreakables[trackTarget] = true
+    local counted = false
+    trackTarget.Destroying:Connect(function()
+        if not counted then
+            counted = true
+            ChestDestroyedCount = ChestDestroyedCount + 1
+            UpdateStatsLabel()
+        end
+    end)
+end
+
+local function TrackEggTarget(target, kind)
+    if kind ~= "egg" or not target then return end
+    local eggModel = target:FindFirstAncestor("DragonEgg") or target:FindFirstAncestorWhichIsA("Model")
+    if not eggModel or CountedEggTriggers[eggModel] then return end
+    CountedEggTriggers[eggModel] = true
+    eggModel:GetAttributeChangedSignal("Active"):Connect(function()
+        if eggModel:GetAttribute("Active") then
+            EggTriggeredCount = EggTriggeredCount + 1
+            UpdateStatsLabel()
+        end
+    end)
+    if eggModel:GetAttribute("Active") then
+        EggTriggeredCount = EggTriggeredCount + 1
+        UpdateStatsLabel()
+    end
+end
+
+local function GetEggModel(target)
+    return target and (target:FindFirstAncestor("DragonEgg") or target:FindFirstAncestorWhichIsA("Model")) or nil
+end
+
+local function GetEggPrompt(target)
+    local eggModel = GetEggModel(target)
+    return eggModel and eggModel:FindFirstChildWhichIsA("ProximityPrompt", true) or nil
+end
+
+local function GetTargetPart(obj)
+    if obj:IsA("BasePart") then return obj end
+    if obj:IsA("Model") then return obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart", true) end
+    return obj:FindFirstChildWhichIsA("BasePart", true)
+end
+
+local function ScanWorldTarget(myRoot)
+    local DragonEgg = workspace:FindFirstChild("DragonEgg")
+    if DragonEgg and not DragonEgg:GetAttribute("Broken") then
+        local part = GetTargetPart(DragonEgg)
+        if part then return part, "egg" end
+    end
+
+    local bestTarget = nil
+    local bestDistance = math.huge
+    local children = workspace:GetChildren()
+    for i = 1, #children do
+        local obj = children[i]
+        local part = string.match(obj.Name, "^Chest") and GetTargetPart(obj) or nil
+        if part then
+            local distance = (myRoot.Position - part.Position).Magnitude
+            if distance < bestDistance then
+                bestDistance = distance
+                bestTarget = part
+            end
+        end
+    end
+    return bestTarget, bestTarget and "breakable" or nil
+end
+
+local function MoveToEggGround(target)
+    local Character = LocalPlayer.Character
+    local MyRoot = Character and Character:FindFirstChild("HumanoidRootPart")
+    local MyHumanoid = Character and Character:FindFirstChildOfClass("Humanoid")
+    if not MyRoot or not MyHumanoid then return false end
+
+    RaycastParamsInstance.FilterDescendantsInstances = {target.Parent, Character}
+    local GroundRay = workspace:Raycast(target.Position + Vector3.new(0, 8, 0), Vector3.new(0, -35, 0), RaycastParamsInstance)
+    local GroundPos = GroundRay and GroundRay.Position or target.Position
+    MyRoot.CFrame = CFrame.new(GroundPos + Vector3.new(0, 3, 0), target.Position)
+    MyRoot.Velocity = Vector3.new(0, 0, 0)
+    MyHumanoid:ChangeState(Enum.HumanoidStateType.Running)
+    task.wait(0.35)
+    return true
+end
+
 local function GetClosestTargetZeroSpike()
     local Character = LocalPlayer.Character
     local MyRoot = Character and Character:FindFirstChild("HumanoidRootPart")
@@ -164,9 +356,6 @@ local function GetClosestTargetZeroSpike()
 
     local NewTarget = nil
     local ClosestDistance = math.huge
-    local BreakableTarget = nil
-    local BreakableKind = nil
-    local ClosestBreakableDistance = math.huge
     local SemuaObjek = workspace:GetDescendants()
 
     for i = 1, #SemuaObjek do
@@ -182,60 +371,38 @@ local function GetClosestTargetZeroSpike()
                         NewTarget = EnemyRoot
                     end
                 end
-            else
-                local nameLower = string.lower(obj.Name)
-                local kind = nil
-                if string.find(nameLower, "egg") then
-                    kind = "egg"
-                elseif string.find(nameLower, "chest") or string.find(nameLower, "box") or string.find(nameLower, "crate") or string.find(nameLower, "barrel") then
-                    kind = "breakable"
-                end
-                if kind then
-                    local BreakableRoot = obj.PrimaryPart or obj:FindFirstChildWhichIsA("BasePart", true)
-                    if BreakableRoot then
-                        local Distance = (MyRoot.Position - BreakableRoot.Position).Magnitude
-                        if Distance < ClosestBreakableDistance then
-                            ClosestBreakableDistance = Distance
-                            BreakableTarget = BreakableRoot
-                            BreakableKind = kind
-                        end
-                    end
-                end
-            end
-        elseif obj:IsA("BasePart") and not obj:IsDescendantOf(Character) then
-            local nameLower = string.lower(obj.Name)
-            if obj.Parent then nameLower = nameLower .. " " .. string.lower(obj.Parent.Name) end
-            local kind = nil
-            if string.find(nameLower, "egg") then
-                kind = "egg"
-            elseif string.find(nameLower, "chest") or string.find(nameLower, "box") or string.find(nameLower, "crate") or string.find(nameLower, "barrel") then
-                kind = "breakable"
-            end
-            if kind then
-                local ParentModel = obj:FindFirstAncestorWhichIsA("Model")
-                if not ParentModel or not ParentModel:FindFirstChildOfClass("Humanoid") then
-                    local Distance = (MyRoot.Position - obj.Position).Magnitude
-                    if Distance < ClosestBreakableDistance then
-                        ClosestBreakableDistance = Distance
-                        BreakableTarget = obj
-                        BreakableKind = kind
-                    end
-                end
             end
         end
     end
     if NewTarget then return NewTarget, "enemy" end
-    return BreakableTarget, BreakableKind
+
+    return ScanWorldTarget(MyRoot)
 end
 
 local function TriggerEggIfNeeded(target, kind)
     if kind ~= "egg" or IsExtractingEgg then return end
     if LastTriggeredEgg == target and os.clock() < EggLockEnd then return end
+    IsExtractingEgg = true
+    if not MoveToEggGround(target) then
+        IsExtractingEgg = false
+        return
+    end
+    local Character = LocalPlayer.Character
+    local MyRoot = Character and Character:FindFirstChild("HumanoidRootPart")
+    if not MyRoot or (MyRoot.Position - target.Position).Magnitude > 24 then
+        IsExtractingEgg = false
+        return
+    end
 
     LastTriggeredEgg = target
-    IsExtractingEgg = true
-    print("[Egg] Holding F 3s to trigger damage absorb...")
-    HoldKey("F", 3.0)
+    local Prompt = GetEggPrompt(target)
+    if Prompt then
+        print("[Egg] Triggering ProximityPrompt...")
+        TriggerPrompt(Prompt)
+    else
+        print("[Egg] Prompt not found. Holding F 3s fallback...")
+        HoldKey("F", 3.0)
+    end
     IsExtractingEgg = false
     EggLockEnd = os.clock() + 12.0
 end
@@ -434,6 +601,8 @@ task.spawn(function()
                     Target = NewTarget
                     TargetKind = NewTargetKind
                     IsEgg = NewTargetKind == "egg"
+                    TrackBreakableTarget(NewTarget, NewTargetKind)
+                    TrackEggTarget(NewTarget, NewTargetKind)
                     TriggerEggIfNeeded(NewTarget, NewTargetKind)
                     task.wait(0.5) 
                 else
@@ -465,14 +634,12 @@ task.spawn(function()
     end
 end)
 
-local RaycastParamsInstance = RaycastParams.new()
-RaycastParamsInstance.FilterType = Enum.RaycastFilterType.Exclude
-
 RunService.Heartbeat:Connect(function(dt)
     local Character = LocalPlayer.Character
     local MyRoot = Character and Character:FindFirstChild("HumanoidRootPart")
     local MyHumanoid = Character and Character:FindFirstChild("Humanoid")
     if not MyRoot or not MyHumanoid or IsEnteringPortal or not _G.AutoFarm then return end
+    if IsExtractingEgg then return end
     if not Target or not Target.Parent then
         Target = nil
         TargetKind = nil
@@ -549,6 +716,11 @@ local ScreenGui = Instance.new("ScreenGui")
 local MasterButton = Instance.new("TextButton")
 local ModeButton = Instance.new("TextButton")
 local ReplayButtonToggle = Instance.new("TextButton") -- [BARU] Tombol Replay Toggle
+local ForgeButtonToggle = Instance.new("TextButton") -- [BARU] Tombol UI Perfect Forge
+local LabelHeight = Instance.new("TextLabel")
+local SliderHeightFrame = Instance.new("Frame")
+local SliderHeightButton = Instance.new("TextButton")
+StatsLabel = Instance.new("TextLabel")
 
 local OldGui = LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild("IronSoulDualMenu")
 if OldGui then OldGui:Destroy() end
@@ -572,11 +744,11 @@ MasterButton.BorderSizePixel = 2
 -- 2. Tombol Mode (UNDERGROUND / ABOVE)
 ModeButton.Name = "ModeButton"
 ModeButton.Parent = ScreenGui
-ModeButton.BackgroundColor3 = Color3.fromRGB(0, 85, 255) 
+ModeButton.BackgroundColor3 = _G.UndergroundMode and Color3.fromRGB(0, 85, 255) or Color3.fromRGB(135, 0, 255)
 ModeButton.Position = UDim2.new(0.05, 0, 0.27, 0)         
 ModeButton.Size = UDim2.new(0, 160, 0, 40)               
 ModeButton.Font = Enum.Font.SourceSansBold
-ModeButton.Text = "MODE: UNDERGROUND"
+ModeButton.Text = _G.UndergroundMode and "MODE: UNDERGROUND" or "MODE: ABOVE MONSTER"
 ModeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 ModeButton.TextSize = 14
 ModeButton.BorderSizePixel = 2
@@ -584,14 +756,116 @@ ModeButton.BorderSizePixel = 2
 -- 3. [BARU] Tombol Kontrol Replay (AUTO REPLAY: YES / NO)
 ReplayButtonToggle.Name = "ReplayButtonToggle"
 ReplayButtonToggle.Parent = ScreenGui
-ReplayButtonToggle.BackgroundColor3 = Color3.fromRGB(0, 150, 75) -- Hijau gelap bawaan aktif
+ReplayButtonToggle.BackgroundColor3 = _G.AutoReplay and Color3.fromRGB(0, 150, 75) or Color3.fromRGB(180, 40, 40) -- Hijau gelap bawaan aktif
 ReplayButtonToggle.Position = UDim2.new(0.05, 0, 0.34, 0) -- Berada tepat di bawah tombol mode        
 ReplayButtonToggle.Size = UDim2.new(0, 160, 0, 40)               
 ReplayButtonToggle.Font = Enum.Font.SourceSansBold
-ReplayButtonToggle.Text = "AUTO REPLAY: YES"
+ReplayButtonToggle.Text = _G.AutoReplay and "AUTO REPLAY: YES" or "AUTO REPLAY: NO"
 ReplayButtonToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
 ReplayButtonToggle.TextSize = 14
 ReplayButtonToggle.BorderSizePixel = 2
+
+LabelHeight.Name = "LabelHeight"
+LabelHeight.Parent = ScreenGui
+LabelHeight.Size = UDim2.new(0, 160, 0, 16)
+LabelHeight.Position = UDim2.new(0.05, 0, 0.41, 0)
+LabelHeight.BackgroundTransparency = 1
+LabelHeight.Font = Enum.Font.SourceSansBold
+LabelHeight.Text = "HEIGHT DISTANCE: " .. tostring(_G.TinggiMelayang) .. " STUDS"
+LabelHeight.TextColor3 = Color3.fromRGB(255, 255, 255)
+LabelHeight.TextSize = 12
+
+SliderHeightFrame.Name = "SliderHeightFrame"
+SliderHeightFrame.Parent = ScreenGui
+SliderHeightFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+SliderHeightFrame.Position = UDim2.new(0.05, 0, 0.41, 20)
+SliderHeightFrame.Size = UDim2.new(0, 160, 0, 6)
+SliderHeightFrame.BorderSizePixel = 0
+
+SliderHeightButton.Name = "SliderHeightButton"
+SliderHeightButton.Parent = SliderHeightFrame
+SliderHeightButton.BackgroundColor3 = Color3.fromRGB(255, 215, 0)
+SliderHeightButton.Size = UDim2.new(0, 14, 0, 14)
+SliderHeightButton.Position = UDim2.new((_G.TinggiMelayang / 100) - 0.04, 0, -0.6, 0)
+SliderHeightButton.Text = ""
+
+-- 4. [BARU] Tombol Kontrol Perfect Forge (PERFECT FORGE: YES / NO)
+ForgeButtonToggle.Name = "ForgeButtonToggle"
+ForgeButtonToggle.Parent = ScreenGui
+ForgeButtonToggle.BackgroundColor3 = _G.PerfectForge and Color3.fromRGB(150, 120, 0) or Color3.fromRGB(120, 30, 30) -- Warna Emas/Oranye gelap bawaan aktif
+ForgeButtonToggle.Position = UDim2.new(0.05, 0, 0.41, 40) -- Berada tepat di bawah slider Height        
+ForgeButtonToggle.Size = UDim2.new(0, 160, 0, 40)               
+ForgeButtonToggle.Font = Enum.Font.SourceSansBold
+ForgeButtonToggle.Text = _G.PerfectForge and "PERFECT FORGE: YES" or "PERFECT FORGE: NO"
+ForgeButtonToggle.TextColor3 = Color3.fromRGB(255, 255, 255)
+ForgeButtonToggle.TextSize = 14
+ForgeButtonToggle.BorderSizePixel = 2
+
+StatsLabel.Name = "StatsLabel"
+StatsLabel.Parent = ScreenGui
+StatsLabel.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+StatsLabel.BackgroundTransparency = 0.15
+StatsLabel.Position = UDim2.new(0.05, 0, 0.41, 88)
+StatsLabel.Size = UDim2.new(0, 160, 0, 48)
+StatsLabel.Font = Enum.Font.SourceSansBold
+StatsLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+StatsLabel.TextSize = 13
+StatsLabel.BorderSizePixel = 2
+UpdateStatsLabel()
+
+local function RefreshHeightSlider()
+    LabelHeight.Text = "HEIGHT DISTANCE: " .. tostring(_G.TinggiMelayang) .. " STUDS"
+    SliderHeightButton.Position = UDim2.new((_G.TinggiMelayang / 100) - 0.04, 0, -0.6, 0)
+end
+
+local function SetHeightPercent(percent)
+    _G.TinggiMelayang = math.max(5, math.floor(percent * 100))
+    _G.KillAuraRadius = _G.TinggiMelayang + 40
+    RefreshHeightSlider()
+end
+
+local ActiveSlider = nil
+
+local function IsSliderInput(input)
+    return input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch
+end
+
+local function SliderPercent(input)
+    return math.clamp((input.Position.X - SliderHeightFrame.AbsolutePosition.X) / SliderHeightFrame.AbsoluteSize.X, 0, 1)
+end
+
+local function UpdateActiveSlider(input)
+    if ActiveSlider == "HEIGHT" then
+        SetHeightPercent(SliderPercent(input))
+    end
+end
+
+SliderHeightButton.InputBegan:Connect(function(input)
+    if IsSliderInput(input) then
+        ActiveSlider = "HEIGHT"
+        UpdateActiveSlider(input)
+    end
+end)
+
+SliderHeightFrame.InputBegan:Connect(function(input)
+    if IsSliderInput(input) then
+        ActiveSlider = "HEIGHT"
+        UpdateActiveSlider(input)
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if IsSliderInput(input) and ActiveSlider then
+        ActiveSlider = nil
+        SaveConfig()
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if ActiveSlider and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        UpdateActiveSlider(input)
+    end
+end)
 
 -- KONEKSI EVENT INTERAKSI KLIK UI
 MasterButton.MouseButton1Click:Connect(function()
@@ -602,12 +876,16 @@ MasterButton.MouseButton1Click:Connect(function()
         MasterButton.Text = "SCRIPT: OFF"
         MasterButton.BackgroundColor3 = Color3.fromRGB(170, 0, 0) 
         Target = nil
+        TargetKind = nil
+        IsEgg = false
         if MyRoot then
             local SkyY = MyRoot.Position.Y + 150
             MyRoot.CFrame = CFrame.new(MyRoot.Position.X, SkyY, MyRoot.Position.Z)
         end
     else
         Target = nil 
+        TargetKind = nil
+        IsEgg = false
         _G.AutoFarm = true
         MasterButton.Text = "SCRIPT: ON"
         MasterButton.BackgroundColor3 = Color3.fromRGB(0, 170, 0) 
@@ -624,6 +902,7 @@ ModeButton.MouseButton1Click:Connect(function()
         ModeButton.Text = "MODE: UNDERGROUND"
         ModeButton.BackgroundColor3 = Color3.fromRGB(0, 85, 255) 
     end
+    SaveConfig()
 end)
 
 ReplayButtonToggle.MouseButton1Click:Connect(function()
@@ -635,4 +914,18 @@ ReplayButtonToggle.MouseButton1Click:Connect(function()
         ReplayButtonToggle.Text = "AUTO REPLAY: NO"
         ReplayButtonToggle.BackgroundColor3 = Color3.fromRGB(180, 40, 40) -- Ganti merah
     end
+    SaveConfig()
+end)
+
+-- [BARU] Event handler untuk klik tombol Perfect Forge
+ForgeButtonToggle.MouseButton1Click:Connect(function()
+    _G.PerfectForge = not _G.PerfectForge
+    if _G.PerfectForge then
+        ForgeButtonToggle.Text = "PERFECT FORGE: YES"
+        ForgeButtonToggle.BackgroundColor3 = Color3.fromRGB(150, 120, 0) -- Oranye/Emas saat aktif
+    else
+        ForgeButtonToggle.Text = "PERFECT FORGE: NO"
+        ForgeButtonToggle.BackgroundColor3 = Color3.fromRGB(120, 30, 30) -- Merah tua saat mati
+    end
+    SaveConfig()
 end)
