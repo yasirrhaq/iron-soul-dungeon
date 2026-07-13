@@ -1463,11 +1463,21 @@ local function TriggerPortalInteraction(MyRoot, PortalPart)
         return
     end
 
-    -- Pindahkan karakter sedikit di atas titik portal
+    local function TouchPortal()
+        if firetouchinterest and MyRoot and MyRoot.Parent and PortalPart and PortalPart.Parent then
+            firetouchinterest(MyRoot, PortalPart, 0)
+            task.wait(0.05)
+            firetouchinterest(MyRoot, PortalPart, 1)
+        end
+    end
+
+    -- Pindahkan karakter ke trigger portal dan fire touch event asli.
     MyRoot.CFrame = CFrame.new(PortalPart.Position + Vector3.new(0, 1, 0))
 
     MyRoot.AssemblyLinearVelocity = Vector3.zero
     MyRoot.AssemblyAngularVelocity = Vector3.zero
+
+    TouchPortal()
 
     -- Tekan Shift + F
     VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
@@ -1483,8 +1493,10 @@ local function TriggerPortalInteraction(MyRoot, PortalPart)
     task.wait(0.2)
 
     if MyRoot and MyRoot.Parent then
+        MyRoot.CFrame = CFrame.new(PortalPart.Position + Vector3.new(0, 1, 0))
         MyRoot.AssemblyLinearVelocity = Vector3.zero
         MyRoot.AssemblyAngularVelocity = Vector3.zero
+        TouchPortal()
     end
 end
 
