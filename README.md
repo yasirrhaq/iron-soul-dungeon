@@ -8,12 +8,25 @@ Use `holygrail/script-v5-full-run-dg.lua` for current full dungeon automation.
 
 Keep this path stable because external loaders/raw URLs may reference it.
 
+Feature behavior summary lives in `docs/features.md`.
+
+## Feature Summary
+
+- Farm enemies with orbit movement, melee clicks, tool activation, skill spam, and weapon switching.
+- Handle Dragon Egg, chest targets, wave triggers, and stage portals.
+- Auto replay on victory, or return to lobby when ore backpack is full.
+- Auto sell ores in lobby, then restart solo dungeon through an empty match-room portal.
+- Auto buy selected Gold shop and Season shop items.
+- Perfect Forge forces forge rating payloads to `15` when enabled.
+- Utility guards cover anti-AFK, semi-god state, noclip, anti-fall, and lobby pause behavior.
+
 ## Repository Layout
 
 | Path | Purpose |
 | --- | --- |
 | `auto-load.lua` | Cloud loader bootstrap. |
 | `holygrail/script-v5-full-run-dg.lua` | Current active full-run dungeon script. |
+| `docs/features.md` | Brief explanation of each active feature. |
 | `scripts/base/` | Older base script line. |
 | `scripts/archive/auto-farm/` | Older auto-farm variants. |
 | `scripts/archive/holygrail/` | Older holygrail versions. |
