@@ -63,7 +63,7 @@ Brief behavior notes for `holygrail/script-v6-full-run-dg.lua`.
 - After confirmed sell clears backpack pressure, script queues dungeon restart.
 - It selects an empty `workspace.MatchRoom.Room1`-`Room4` where `PlayersCount == 0` and `RoomState` is empty.
 - It touches that room portal to open real `ScreenMatch` state.
-- It selects `World3`, difficulty `10`, then fires `GameMatchRE:FireServer("CreatRoom", "World3", 10, 1)` for solo `1/1` party.
+- Post-sell restart uses the saved Dungeon selector world and difficulty, then creates a solo `1/1` room.
 - Retry loop keeps trying while auto farm, auto replay, and no sell pending are true.
 
 ## Auto-Start Dungeon Selector
