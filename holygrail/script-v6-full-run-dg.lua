@@ -3247,20 +3247,61 @@ UtilityNavigation.Size = UDim2.new(1, 0, 0, 32)
 UtilityNavigation.BackgroundTransparency = 1
 UtilityNavigation.Parent = UtilityTab
 
+local DungeonTabButton = CreateButton(UtilityNavigation, "DUNGEON")
+DungeonTabButton.Size = UDim2.new(0.25, -4, 1, 0)
 local GroceryTabButton = CreateButton(UtilityNavigation, "GROCERY")
-GroceryTabButton.Size = UDim2.new(1 / 3, -4, 1, 0)
+GroceryTabButton.Position = UDim2.new(0.25, 2, 0, 0)
+GroceryTabButton.Size = UDim2.new(0.25, -4, 1, 0)
 local SeasonTabButton = CreateButton(UtilityNavigation, "SEASON")
-SeasonTabButton.Position = UDim2.new(1 / 3, 2, 0, 0)
-SeasonTabButton.Size = UDim2.new(1 / 3, -4, 1, 0)
-local AutoSellTabButton = CreateButton(UtilityNavigation, "AUTOSELL")
-AutoSellTabButton.Position = UDim2.new(2 / 3, 4, 0, 0)
-AutoSellTabButton.Size = UDim2.new(1 / 3, -4, 1, 0)
+SeasonTabButton.Position = UDim2.new(0.5, 4, 0, 0)
+SeasonTabButton.Size = UDim2.new(0.25, -4, 1, 0)
+local AutoSellTabButton = CreateButton(UtilityNavigation, "AUTO SELL")
+AutoSellTabButton.Position = UDim2.new(0.75, 6, 0, 0)
+AutoSellTabButton.Size = UDim2.new(0.25, -6, 1, 0)
 
 local UtilityPages = Instance.new("Frame")
 UtilityPages.Position = UDim2.fromOffset(0, 124)
 UtilityPages.Size = UDim2.new(1, 0, 1, -124)
 UtilityPages.BackgroundTransparency = 1
 UtilityPages.Parent = UtilityTab
+
+local function CreateSelectorDropdown(Parent, Name, PositionY)
+    local Button = CreateButton(Parent, "")
+    Button.Name = Name .. "Dropdown"
+    Button.Position = UDim2.fromOffset(0, PositionY)
+    Button.Size = UDim2.new(1, 0, 0, 34)
+    Button.TextXAlignment = Enum.TextXAlignment.Left
+
+    local Options = Instance.new("ScrollingFrame")
+    Options.Name = Name .. "Options"
+    Options.Position = UDim2.fromOffset(0, PositionY + 38)
+    Options.Size = UDim2.new(1, 0, 0, 0)
+    Options.BackgroundColor3 = Theme.Surface
+    Options.BorderSizePixel = 0
+    Options.ScrollBarThickness = 3
+    Options.ScrollBarImageColor3 = Theme.Accent
+    Options.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    Options.CanvasSize = UDim2.fromOffset(0, 0)
+    Options.Visible = false
+    Options.ZIndex = 30
+    Options.Parent = Parent
+    AddCorner(Options, 6)
+    AddStroke(Options, Theme.Accent)
+    local Padding = Instance.new("UIPadding")
+    Padding.PaddingTop = UDim.new(0, 5)
+    Padding.PaddingBottom = UDim.new(0, 5)
+    Padding.PaddingLeft = UDim.new(0, 5)
+    Padding.PaddingRight = UDim.new(0, 5)
+    Padding.Parent = Options
+    local Layout = Instance.new("UIListLayout")
+    Layout.Padding = UDim.new(0, 4)
+    Layout.Parent = Options
+
+    Button.Activated:Connect(function()
+        Options.Visible = not Options.Visible
+    end)
+    return Button, Options
+end
 
 local function CreateCatalogPage(Name)
     local Page = Instance.new("Frame")
@@ -3328,22 +3369,113 @@ local function CreateCatalogPage(Name)
     }
 end
 
+local DungeonPage = Instance.new("Frame")
+DungeonPage.Name = "DungeonPage"
+DungeonPage.Size = UDim2.fromScale(1, 1)
+DungeonPage.BackgroundTransparency = 1
+DungeonPage.Parent = UtilityPages
+
+local DungeonLabel = CreateText(DungeonPage, "Dungeon", 11, Theme.Muted)
+DungeonLabel.Size = UDim2.new(1, 0, 0, 20)
+local DungeonDropdown, DungeonOptions = CreateSelectorDropdown(DungeonPage, "Dungeon", 22)
+
+local DifficultyLabel = CreateText(DungeonPage, "Difficulty", 11, Theme.Muted)
+DifficultyLabel.Position = UDim2.fromOffset(0, 104)
+DifficultyLabel.Size = UDim2.new(1, 0, 0, 20)
+local DifficultyDropdown, DifficultyOptions = CreateSelectorDropdown(DungeonPage, "Difficulty", 126)
+
+local PartyStatus = CreateText(DungeonPage, "Party Size   SOLO 1/1", 12)
+PartyStatus.Position = UDim2.fromOffset(10, 210)
+PartyStatus.Size = UDim2.new(1, -20, 0, 30)
+local TriggerStatus = CreateText(DungeonPage, "Trigger      AFTER AUTO-SELL", 12)
+TriggerStatus.Position = UDim2.fromOffset(10, 246)
+TriggerStatus.Size = UDim2.new(1, -20, 0, 30)
+
 local GroceryPage = CreateCatalogPage("GroceryPage")
 local SeasonPage = CreateCatalogPage("SeasonPage")
 local AutoSellPage = CreateCatalogPage("AutoSellPage")
 
+local function ClearSelectorOptions(Options)
+    for _, Child in ipairs(Options:GetChildren()) do
+        if Child:IsA("GuiButton") then
+            Child:Destroy()
+        end
+    end
+end
+
+local function AddSelectorOption(Options, Text, Unlocked, OnSelect)
+    local Option = CreateButton(Options, Unlocked and Text or (Text .. "  LOCKED"))
+    Option.Size = UDim2.new(1, 0, 0, 28)
+    Option.ZIndex = 31
+    Option.TextColor3 = Unlocked and Theme.Text or Theme.Muted
+    Option.Activated:Connect(function()
+        if Unlocked then
+            Options.Visible = false
+            OnSelect()
+        end
+    end)
+end
+
+local function FindSelectedDifficultyName()
+    for _, Entry in ipairs(GetDifficultyCatalog(AutoStartWorldId)) do
+        if Entry.Level == AutoStartDifficulty then
+            return Entry.DisplayName
+        end
+    end
+    return "Unavailable"
+end
+
+local function BuildDifficultyOptions(ForceRefresh)
+    ClearSelectorOptions(DifficultyOptions)
+    for _, Entry in ipairs(GetDifficultyCatalog(AutoStartWorldId, ForceRefresh)) do
+        AddSelectorOption(DifficultyOptions, Entry.DisplayName, Entry.Unlocked, function()
+            if SelectAutoStartDifficulty(Entry.Level) then
+                DifficultyDropdown.Text = "  " .. Entry.DisplayName .. "  \226\150\188"
+            end
+        end)
+    end
+    DifficultyOptions.Size = UDim2.new(1, 0, 0, math.min(180, #GetDifficultyCatalog(AutoStartWorldId) * 32 + 10))
+    DifficultyDropdown.Text = "  " .. FindSelectedDifficultyName() .. "  \226\150\188"
+end
+
+local function BuildDungeonPage(ForceRefresh)
+    ValidateAutoStartSelection(false)
+    ClearSelectorOptions(DungeonOptions)
+    local SelectedName = AutoStartWorldId
+    local Catalog = GetDungeonCatalog(ForceRefresh)
+    for _, Entry in ipairs(Catalog) do
+        if Entry.WorldId == AutoStartWorldId then
+            SelectedName = Entry.DisplayName
+        end
+        AddSelectorOption(DungeonOptions, Entry.DisplayName, Entry.Unlocked, function()
+            if SelectAutoStartWorld(Entry.WorldId) then
+                BuildDungeonPage(true)
+            end
+        end)
+    end
+    DungeonOptions.Size = UDim2.new(1, 0, 0, math.min(180, #Catalog * 32 + 10))
+    DungeonDropdown.Text = "  " .. SelectedName .. "  \226\150\188"
+    BuildDifficultyOptions(ForceRefresh)
+end
+
 local function SetUtilityPage(Name)
+    DungeonPage.Visible = Name == "Dungeon"
     GroceryPage.Page.Visible = Name == "Grocery"
     SeasonPage.Page.Visible = Name == "Season"
     AutoSellPage.Page.Visible = Name == "AutoSell"
+    DungeonTabButton.BackgroundColor3 = Name == "Dungeon" and Theme.Accent or Theme.Surface
     GroceryTabButton.BackgroundColor3 = Name == "Grocery" and Theme.Accent or Theme.Surface
     SeasonTabButton.BackgroundColor3 = Name == "Season" and Theme.Accent or Theme.Surface
     AutoSellTabButton.BackgroundColor3 = Name == "AutoSell" and Theme.Accent or Theme.Surface
+    if Name == "Dungeon" then
+        pcall(BuildDungeonPage, true)
+    end
 end
+DungeonTabButton.Activated:Connect(function() SetUtilityPage("Dungeon") end)
 GroceryTabButton.Activated:Connect(function() SetUtilityPage("Grocery") end)
 SeasonTabButton.Activated:Connect(function() SetUtilityPage("Season") end)
 AutoSellTabButton.Activated:Connect(function() SetUtilityPage("AutoSell") end)
-SetUtilityPage("Grocery")
+SetUtilityPage("Dungeon")
 
 local function ClearCatalogRows(PageState)
     for _, RowState in ipairs(PageState.Rows) do
