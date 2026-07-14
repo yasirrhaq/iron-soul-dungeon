@@ -635,6 +635,21 @@ local function ShouldSellOre(OreId, Def)
     return SellMaxRarity > 0 and Rarity and Rarity <= SellMaxRarity
 end
 
+local function GetItemDisplayName(ItemId)
+    local RawId = tostring(ItemId or "Unknown")
+    local BaseId = string.split(RawId, ":")[1]
+    local Key = "K_" .. string.upper(BaseId)
+    local DisplayName = nil
+
+    pcall(function()
+        DisplayName = GetFrameworkModule().Modules.TranslationUtil:TranslateByKey(Key)
+    end)
+    if type(DisplayName) == "string" and DisplayName ~= "" and DisplayName ~= Key then
+        return DisplayName
+    end
+    return string.gsub(BaseId, "_", " ")
+end
+
 local function GetOreBackpackUsage()
     local Framework = GetFrameworkModule()
     local DataUtil = Framework.Modules.DataUtil
@@ -2729,7 +2744,13 @@ local function CreateToggleRow(Parent, LabelText, GetValue, OnToggle)
         Switch.BackgroundColor3 = Enabled and Theme.Enabled or Theme.Disabled
         Knob.Position = Enabled and UDim2.new(1, -10, 0.5, 0) or UDim2.new(0, 10, 0.5, 0)
     end
-    Row.MouseButton1Click:Connect(function()
+    local LastToggleAt = 0
+    Row.Activated:Connect(function()
+        local CurrentTime = os.clock()
+        if (CurrentTime - LastToggleAt) < 0.25 then
+            return
+        end
+        LastToggleAt = CurrentTime
         OnToggle(not GetValue())
         Refresh()
     end)
@@ -2838,17 +2859,17 @@ local function SetMainTab(Name)
     FarmTabButton.BackgroundColor3 = IsFarm and Theme.Accent or Theme.Surface
     UtilityTabButton.BackgroundColor3 = IsFarm and Theme.Surface or Theme.Accent
 end
-FarmTabButton.MouseButton1Click:Connect(function()
+FarmTabButton.Activated:Connect(function()
     SetMainTab("Farm")
 end)
-UtilityTabButton.MouseButton1Click:Connect(function()
+UtilityTabButton.Activated:Connect(function()
     SetMainTab("Utility")
 end)
-MinimizeButton.MouseButton1Click:Connect(function()
+MinimizeButton.Activated:Connect(function()
     D3DPanel.Visible = false
     FloatingIcon.Visible = true
 end)
-FloatingIcon.MouseButton1Click:Connect(function()
+FloatingIcon.Activated:Connect(function()
     FloatingIcon.Visible = false
     D3DPanel.Visible = true
 end)
@@ -3107,9 +3128,9 @@ local function SetUtilityPage(Name)
     SeasonTabButton.BackgroundColor3 = Name == "Season" and Theme.Accent or Theme.Surface
     AutoSellTabButton.BackgroundColor3 = Name == "AutoSell" and Theme.Accent or Theme.Surface
 end
-GroceryTabButton.MouseButton1Click:Connect(function() SetUtilityPage("Grocery") end)
-SeasonTabButton.MouseButton1Click:Connect(function() SetUtilityPage("Season") end)
-AutoSellTabButton.MouseButton1Click:Connect(function() SetUtilityPage("AutoSell") end)
+GroceryTabButton.Activated:Connect(function() SetUtilityPage("Grocery") end)
+SeasonTabButton.Activated:Connect(function() SetUtilityPage("Season") end)
+AutoSellTabButton.Activated:Connect(function() SetUtilityPage("AutoSell") end)
 SetUtilityPage("Grocery")
 
 local function ClearCatalogRows(PageState)
@@ -3133,12 +3154,14 @@ local function CreateSelectionRow(PageState, Entry, SelectionMap, DetailText)
     Row.Name = "Item_" .. Entry.ItemId
     Row.Size = UDim2.new(1, -2, 0, 46)
 
-    local Title = CreateText(Row, Entry.ItemId, 12)
+    local DisplayName = GetItemDisplayName(Entry.ItemId)
+
+    local Title = CreateText(Row, DisplayName, 12)
     Title.Position = UDim2.fromOffset(10, 3)
     Title.Size = UDim2.new(1, -55, 0, 22)
     Title.Font = Enum.Font.GothamMedium
 
-    local Detail = CreateText(Row, DetailText, 10, Theme.Muted)
+    local Detail = CreateText(Row, Entry.ItemId .. " · " .. DetailText, 10, Theme.Muted)
     Detail.Position = UDim2.fromOffset(10, 23)
     Detail.Size = UDim2.new(1, -55, 0, 18)
 
@@ -3159,7 +3182,7 @@ local function CreateSelectionRow(PageState, Entry, SelectionMap, DetailText)
         Check.Text = Selected and "✓" or ""
         Check.BackgroundColor3 = Selected and Theme.Enabled or Theme.SurfaceHover
     end
-    Row.MouseButton1Click:Connect(function()
+    Row.Activated:Connect(function()
         if SelectionMap[Entry.ItemId] then
             SelectionMap[Entry.ItemId] = nil
         else
@@ -3172,7 +3195,7 @@ local function CreateSelectionRow(PageState, Entry, SelectionMap, DetailText)
 
     table.insert(PageState.Rows, {
         Gui = Row,
-        SearchText = string.lower(Entry.ItemId .. " " .. tostring(Entry.ItemType or ""))
+        SearchText = string.lower(DisplayName .. " " .. Entry.ItemId .. " " .. tostring(Entry.ItemType or ""))
     })
 end
 
@@ -3202,8 +3225,8 @@ end
 
 GroceryPage.SearchBox:GetPropertyChangedSignal("Text"):Connect(function() FilterCatalogRows(GroceryPage) end)
 SeasonPage.SearchBox:GetPropertyChangedSignal("Text"):Connect(function() FilterCatalogRows(SeasonPage) end)
-GroceryPage.RefreshButton.MouseButton1Click:Connect(function() pcall(BuildGroceryPage, true) end)
-SeasonPage.RefreshButton.MouseButton1Click:Connect(function() pcall(BuildSeasonPage, true) end)
+GroceryPage.RefreshButton.Activated:Connect(function() pcall(BuildGroceryPage, true) end)
+SeasonPage.RefreshButton.Activated:Connect(function() pcall(BuildSeasonPage, true) end)
 
 AutoSellPage.SearchBox.Position = UDim2.fromOffset(0, 40)
 AutoSellPage.RefreshButton.Position = UDim2.new(1, 0, 0, 40)
@@ -3272,7 +3295,7 @@ local function BuildRarityOptions(Catalog)
         local Option = CreateButton(RarityOptions, RarityDisplayName(Level, Catalog))
         Option.Size = UDim2.new(1, 0, 0, 26)
         Option.ZIndex = 21
-        Option.MouseButton1Click:Connect(function()
+        Option.Activated:Connect(function()
             SellMaxRarity = Level
             Config.SellMaxRarity = Level
             RarityOptions.Visible = false
@@ -3289,13 +3312,15 @@ local function CreateOreModeRow(Entry)
     Row.Name = "Ore_" .. Entry.ItemId
     Row.Size = UDim2.new(1, -2, 0, 46)
 
-    local Title = CreateText(Row, Entry.ItemId, 12)
+    local DisplayName = GetItemDisplayName(Entry.ItemId)
+    local Title = CreateText(Row, DisplayName, 12)
     Title.Position = UDim2.fromOffset(10, 3)
     Title.Size = UDim2.new(1, -78, 0, 22)
     Title.Font = Enum.Font.GothamMedium
 
     local Detail = CreateText(Row,
-        tostring(Entry.RarityName) .. " · Level " .. tostring(Entry.Rarity) .. " · owned " .. tostring(Entry.Count),
+        Entry.ItemId .. " · " .. tostring(Entry.RarityName) .. " · Level " .. tostring(Entry.Rarity) .. " · owned " ..
+            tostring(Entry.Count),
         10, Theme.Muted)
     Detail.Position = UDim2.fromOffset(10, 23)
     Detail.Size = UDim2.new(1, -78, 0, 18)
@@ -3317,7 +3342,7 @@ local function CreateOreModeRow(Entry)
         ModeLabel.BackgroundColor3 = Mode == "SELL" and Theme.Sell or Mode == "KEEP" and Theme.Keep or Theme.Accent
     end
     -- AUTO -> SELL -> KEEP -> AUTO
-    Row.MouseButton1Click:Connect(function()
+    Row.Activated:Connect(function()
         local Mode = OreSellModes[Entry.ItemId] or "AUTO"
         if Mode == "AUTO" then
             OreSellModes[Entry.ItemId] = "SELL"
@@ -3332,7 +3357,7 @@ local function CreateOreModeRow(Entry)
     Refresh()
     table.insert(AutoSellPage.Rows, {
         Gui = Row,
-        SearchText = string.lower(Entry.ItemId .. " " .. tostring(Entry.RarityName))
+        SearchText = string.lower(DisplayName .. " " .. Entry.ItemId .. " " .. tostring(Entry.RarityName))
     })
 end
 
@@ -3347,8 +3372,8 @@ local function BuildAutoSellPage(ForceRefresh)
 end
 
 AutoSellPage.SearchBox:GetPropertyChangedSignal("Text"):Connect(function() FilterCatalogRows(AutoSellPage) end)
-AutoSellPage.RefreshButton.MouseButton1Click:Connect(function() pcall(BuildAutoSellPage, true) end)
-RarityButton.MouseButton1Click:Connect(function()
+AutoSellPage.RefreshButton.Activated:Connect(function() pcall(BuildAutoSellPage, true) end)
+RarityButton.Activated:Connect(function()
     RarityOptions.Visible = not RarityOptions.Visible
 end)
 
