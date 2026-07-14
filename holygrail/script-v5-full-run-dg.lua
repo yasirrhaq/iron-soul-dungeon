@@ -792,7 +792,7 @@ end)
 task.spawn(function()
     while true do
         task.wait(AutoSellDelay)
-        if _G.AutoSell then
+        if _G.AutoSell and IsInLobby and IsInLobby() then
             pcall(TryAutoSellOresOnce)
         end
     end
@@ -1454,7 +1454,7 @@ local function IsPortalAlreadyUsed(PortalPart)
     return false
 end
 
-local function TriggerPortalInteraction(MyRoot, PortalPart)
+local function TriggerPortalInteraction(MyRoot, PortalPart, UseTouchTrigger)
     if not MyRoot or not MyRoot.Parent then
         return
     end
@@ -1477,7 +1477,9 @@ local function TriggerPortalInteraction(MyRoot, PortalPart)
     MyRoot.AssemblyLinearVelocity = Vector3.zero
     MyRoot.AssemblyAngularVelocity = Vector3.zero
 
-    TouchPortal()
+    if UseTouchTrigger then
+        TouchPortal()
+    end
 
     -- Tekan Shift + F
     VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.LeftShift, false, game)
@@ -1493,10 +1495,12 @@ local function TriggerPortalInteraction(MyRoot, PortalPart)
     task.wait(0.2)
 
     if MyRoot and MyRoot.Parent then
-        MyRoot.CFrame = CFrame.new(PortalPart.Position + Vector3.new(0, 1, 0))
         MyRoot.AssemblyLinearVelocity = Vector3.zero
         MyRoot.AssemblyAngularVelocity = Vector3.zero
-        TouchPortal()
+        if UseTouchTrigger then
+            MyRoot.CFrame = CFrame.new(PortalPart.Position + Vector3.new(0, 1, 0))
+            TouchPortal()
+        end
     end
 end
 
@@ -1760,7 +1764,7 @@ local function TeleportToNextStagePortal()
     print("🚪 [Portal] Sukses Mengunci Portal Utama: " .. BestPortalPart:GetFullName() .. " (Skor: " ..
               tostring(HighestScore) .. ", Jarak: " .. string.format("%.1f", ClosestDistance) .. ")")
 
-    TriggerPortalInteraction(MyRoot, BestPortalPart)
+    TriggerPortalInteraction(MyRoot, BestPortalPart, not IsEndlessTower)
 
     IsEnteringPortal = false
 
