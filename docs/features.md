@@ -24,7 +24,8 @@ Brief behavior notes for `holygrail/script-v6-full-run-dg.lua`.
 - Enemy targets are live humanoid models with root parts.
 - Dragon egg has priority over chests when `workspace.DragonEgg` exists and is not broken.
 - Chest targets are workspace children whose names start with `Chest`.
-- Breakable and egg counters update `CHEST DESTROYED` and `EGG TRIGGERED` in the overlay.
+- Farm overlay shows `CHEST DESTROYED`, `EGG TRIGGERED`, and live `ORE: current/max` backpack usage.
+- Ore usage is read locally once per second and redraws only when current ore or capacity changes.
 
 ## Dragon Egg
 
