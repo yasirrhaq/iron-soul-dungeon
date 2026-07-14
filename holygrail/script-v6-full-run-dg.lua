@@ -493,6 +493,23 @@ end
 local CachedGoldShopCatalog = nil
 local CachedSeasonShopCatalog = nil
 local CachedOreCatalog = nil
+local CachedDungeonCatalog = nil
+local CachedDifficultyCatalogs = {}
+
+local function GetWorldConfig()
+    return require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("World"):WaitForChild("ResWorld"))
+end
+
+local function TranslateConfigName(NameKey, Fallback)
+    local DisplayName = nil
+    pcall(function()
+        DisplayName = GetFrameworkModule().Modules.TranslationUtil:TranslateByKey(NameKey)
+    end)
+    if type(DisplayName) == "string" and DisplayName ~= "" and DisplayName ~= NameKey then
+        return DisplayName
+    end
+    return tostring(Fallback or NameKey or "Unknown")
+end
 
 local function CatalogValues(ById)
     local Result = {}
@@ -508,6 +525,184 @@ local function CatalogValues(ById)
         return TypeA < TypeB
     end)
     return Result
+end
+
+local function GetDungeonCatalog(ForceRefresh)
+    if CachedDungeonCatalog and not ForceRefresh then
+        return CachedDungeonCatalog
+    end
+
+    local ResWorld = GetWorldConfig()
+    local WorldUtil = GetFrameworkModule().Modules.WorldUtil
+    local Result = {}
+    for _, WorldKey in ipairs(ResWorld.__index or {}) do
+        local Info = ResWorld[WorldKey]
+        if type(Info) == "table" and Info.Mode ~= "Lobby" then
+            local WorldId = tostring(Info.Id or WorldKey)
+            local Unlocked = false
+            pcall(function()
+                Unlocked = WorldUtil:IsUnlockWorld(LocalPlayer, WorldId, 1) == true
+            end)
+            table.insert(Result, {
+                WorldId = WorldId,
+                DisplayName = TranslateConfigName(Info.Name, WorldId),
+                Sort = tonumber(Info.Sort) or math.huge,
+                Unlocked = Unlocked,
+                Info = Info
+            })
+        end
+    end
+    table.sort(Result, function(A, B)
+        if A.Sort == B.Sort then
+            return A.WorldId < B.WorldId
+        end
+        return A.Sort < B.Sort
+    end)
+    CachedDungeonCatalog = Result
+    return Result
+end
+
+local function GetDifficultyCatalog(WorldId, ForceRefresh)
+    if CachedDifficultyCatalogs[WorldId] and not ForceRefresh then
+        return CachedDifficultyCatalogs[WorldId]
+    end
+
+    local Framework = GetFrameworkModule()
+    local WorldUtil = Framework.Modules.WorldUtil
+    local RarityTiers = Framework.Modules.RarityTiers
+    local Result = {}
+    local Seen = {}
+
+    local function AddDifficulty(DiffLevel)
+        DiffLevel = tonumber(DiffLevel)
+        if not DiffLevel or Seen[DiffLevel] then
+            return
+        end
+        local Success, DiffInfo = pcall(function()
+            return WorldUtil:GetWorldDiffInfo(WorldId, DiffLevel)
+        end)
+        if not Success or type(DiffInfo) ~= "table" then
+            return
+        end
+        Seen[DiffLevel] = true
+        local DifficultyName = tostring(DiffInfo.Difficulty or DiffLevel)
+        pcall(function()
+            DifficultyName = RarityTiers:GetDifficultyName(DiffInfo.Difficulty)
+        end)
+        if DiffInfo.Style == "Hell" then
+            DifficultyName = "Hell (" .. DifficultyName .. ")"
+        end
+        local Unlocked = false
+        pcall(function()
+            Unlocked = WorldUtil:IsUnlockWorld(LocalPlayer, WorldId, DiffLevel) == true
+        end)
+        table.insert(Result, {
+            Level = DiffLevel,
+            DisplayName = DifficultyName,
+            Unlocked = Unlocked,
+            Info = DiffInfo
+        })
+    end
+
+    for DiffLevel = 1, 5 do
+        AddDifficulty(DiffLevel)
+    end
+    local Success, HellList = pcall(function()
+        return WorldUtil:GetWorldStyleList(WorldId, "Hell")
+    end)
+    if Success then
+        for _, HellInfo in ipairs(HellList or {}) do
+            AddDifficulty(HellInfo.DiffLevel)
+        end
+    end
+    table.sort(Result, function(A, B)
+        return A.Level < B.Level
+    end)
+    CachedDifficultyCatalogs[WorldId] = Result
+    return Result
+end
+
+local function FindDungeonEntry(WorldId, ForceRefresh)
+    for _, Entry in ipairs(GetDungeonCatalog(ForceRefresh)) do
+        if Entry.WorldId == WorldId then
+            return Entry
+        end
+    end
+end
+
+local function FindHighestUnlockedDifficulty(WorldId, ForceRefresh)
+    local Selected = nil
+    for _, Entry in ipairs(GetDifficultyCatalog(WorldId, ForceRefresh)) do
+        if Entry.Unlocked and (not Selected or Entry.Level > Selected.Level) then
+            Selected = Entry
+        end
+    end
+    return Selected
+end
+
+local function ValidateAutoStartSelection(PreferHighest)
+    local Changed = false
+    local Dungeon = FindDungeonEntry(AutoStartWorldId, true)
+    if not Dungeon or not Dungeon.Unlocked then
+        Dungeon = nil
+        for _, Entry in ipairs(GetDungeonCatalog()) do
+            if Entry.Unlocked then
+                Dungeon = Entry
+                break
+            end
+        end
+        if not Dungeon then
+            return false
+        end
+        AutoStartWorldId = Dungeon.WorldId
+        Changed = true
+    end
+
+    local Difficulty = nil
+    if not PreferHighest then
+        for _, Entry in ipairs(GetDifficultyCatalog(AutoStartWorldId, true)) do
+            if Entry.Level == AutoStartDifficulty and Entry.Unlocked then
+                Difficulty = Entry
+                break
+            end
+        end
+    end
+    Difficulty = Difficulty or FindHighestUnlockedDifficulty(AutoStartWorldId)
+    if not Difficulty then
+        return false
+    end
+    if AutoStartDifficulty ~= Difficulty.Level then
+        AutoStartDifficulty = Difficulty.Level
+        Changed = true
+    end
+    if Changed then
+        SaveConfig()
+    end
+    return true
+end
+
+local function SelectAutoStartWorld(WorldId)
+    local Entry = FindDungeonEntry(WorldId, true)
+    if not Entry or not Entry.Unlocked then
+        return false
+    end
+    AutoStartWorldId = Entry.WorldId
+    if not ValidateAutoStartSelection(true) then
+        return false
+    end
+    SaveConfig()
+    return true
+end
+
+local function SelectAutoStartDifficulty(DiffLevel)
+    for _, Entry in ipairs(GetDifficultyCatalog(AutoStartWorldId, true)) do
+        if Entry.Level == DiffLevel and Entry.Unlocked then
+            AutoStartDifficulty = Entry.Level
+            SaveConfig()
+            return true
+        end
+    end
+    return false
 end
 
 local function GetGoldShopCatalog(ForceRefresh)
@@ -902,6 +1097,11 @@ local function TryAutoStartSoloDungeon()
     end
 
     if not IsInLobby() then
+        return false
+    end
+
+    if not ValidateAutoStartSelection(false) then
+        print("[AutoStart] No unlocked dungeon target")
         return false
     end
 
