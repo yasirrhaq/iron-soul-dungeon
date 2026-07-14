@@ -56,8 +56,13 @@ local Config = {
     AutoBuyWantedItemIds = CopyMap(DefaultAutoBuyWantedItemIds),
     AutoSeasonBuyWantedItemIds = CopyMap(DefaultAutoSeasonBuyWantedItemIds),
     SellMaxRarity = 5,
+    AutoStartWorldId = "World3",
+    AutoStartDifficulty = 10,
     OreSellModes = CopyMap(DefaultOreSellModes)
 }
+
+local AutoStartWorldId = Config.AutoStartWorldId
+local AutoStartDifficulty = Config.AutoStartDifficulty
 
 local function ClampNumber(value, minimum, maximum, fallback)
     value = tonumber(value)
@@ -127,6 +132,8 @@ local function LoadConfig()
     Config.AutoSeasonBuyWantedItemIds = NormalizeEnabledMap(Config.AutoSeasonBuyWantedItemIds,
         DefaultAutoSeasonBuyWantedItemIds)
     Config.SellMaxRarity = math.floor(ClampNumber(Config.SellMaxRarity, 0, 10, 5))
+    Config.AutoStartWorldId = type(Config.AutoStartWorldId) == "string" and Config.AutoStartWorldId or "World3"
+    Config.AutoStartDifficulty = math.max(1, math.floor(tonumber(Config.AutoStartDifficulty) or 10))
     Config.OreSellModes = NormalizeOreSellModes(Config.OreSellModes)
 end
 
@@ -141,6 +148,8 @@ local function SaveConfig()
     Config.AutoBuyWantedItemIds = AutoBuyWantedItemIds or Config.AutoBuyWantedItemIds
     Config.AutoSeasonBuyWantedItemIds = AutoSeasonBuyWantedItemIds or Config.AutoSeasonBuyWantedItemIds
     Config.SellMaxRarity = SellMaxRarity or Config.SellMaxRarity
+    Config.AutoStartWorldId = AutoStartWorldId or Config.AutoStartWorldId
+    Config.AutoStartDifficulty = AutoStartDifficulty or Config.AutoStartDifficulty
     Config.OreSellModes = OreSellModes or Config.OreSellModes
     local Berhasil, HasilJSON = pcall(function()
         return HttpService:JSONEncode(Config)
@@ -156,6 +165,8 @@ local function SaveConfig()
 end
 
 LoadConfig()
+AutoStartWorldId = Config.AutoStartWorldId
+AutoStartDifficulty = Config.AutoStartDifficulty
 
 -- KONTROL SCRIPT MASTER
 _G.AutoFarm = true
@@ -225,8 +236,6 @@ local LastAutoStartDungeonAt = 0
 local LastAutoStartRetryAt = 0
 local AutoStartDungeonDelay = 10.0
 local AutoStartRetryDelay = 3.0
-local AutoStartWorldId = "World3"
-local AutoStartDifficulty = 10
 local AutoStartMaxPlayers = 1
 local AutoStartPending = false
 local IsInLobby = nil
