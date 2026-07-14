@@ -72,7 +72,7 @@ Brief behavior notes for `holygrail/script-v6-full-run-dg.lua`.
 - Utility → Dungeon selects the dungeon and translated difficulty name used after successful lobby auto-sell.
 - Locked dungeons and difficulties remain visible as `LOCKED` but cannot be selected.
 - Selecting a dungeon automatically chooses its highest unlocked difficulty.
-- Internal difficulty numbers stay hidden; saved config keeps the internal world ID and difficulty level.
+- Difficulty rows and selected value show their internal index, such as `[10] Hell (Nightmare)`; saved config and remotes use the same numeric level.
 - Normal victory replay remains `Play Again`; selector does not queue from lobby or add a manual start action.
 - Auto-start remains solo `1/1` and requires Auto Farm plus Auto Replay.
 
