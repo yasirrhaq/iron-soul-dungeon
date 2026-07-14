@@ -19,6 +19,56 @@ function Assert-NotContains($pattern, $message) {
     if ($content -match $pattern) { throw $message }
 }
 
+function Assert-LuauCompiles {
+    $compiler = Get-Command luau-compile -ErrorAction SilentlyContinue
+    if ($compiler) {
+        $compileOutput = & $compiler.Source $v6Path 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "Luau compile failed:`n$($compileOutput -join "`n")" }
+        return
+    }
+
+    if (-not (Get-Command npm -ErrorAction SilentlyContinue) -or -not (Get-Command node -ErrorAction SilentlyContinue)) {
+        throw 'Luau compile requires luau-compile or npm+node for ephemeral luau-web@1.4.0 fallback'
+    }
+
+    $temp = Join-Path ([System.IO.Path]::GetTempPath()) ("check-v6-luau-" + [guid]::NewGuid())
+    New-Item -ItemType Directory -Path $temp | Out-Null
+    try {
+        # Exact fallback package command: npm pack luau-web@1.4.0 --silent --pack-destination <temp>
+        $packOutput = & npm pack luau-web@1.4.0 --silent --pack-destination $temp 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "Unable to fetch ephemeral Luau compiler:`n$($packOutput -join "`n")" }
+        $archive = Get-ChildItem -LiteralPath $temp -Filter '*.tgz' | Select-Object -First 1
+        if (-not $archive) { throw 'Ephemeral luau-web package archive missing' }
+        & tar -xf $archive.FullName -C $temp
+        if ($LASTEXITCODE -ne 0) { throw 'Unable to extract ephemeral luau-web package' }
+
+        $moduleUri = ([uri](Join-Path $temp 'package\src\index.js')).AbsoluteUri | ConvertTo-Json -Compress
+        $sourcePath = $v6Path.ToString() | ConvertTo-Json -Compress
+        $runner = Join-Path $temp 'compile.mjs'
+        @"
+import fs from 'node:fs';
+const { LuauState } = await import($moduleUri);
+const state = await LuauState.createAsync();
+const result = state.loadstring(fs.readFileSync($sourcePath, 'utf8'), 'script-v6-full-run-dg.lua');
+if (typeof result === 'string') {
+    console.error(result);
+    state.destroy();
+    process.exit(1);
+}
+state.destroy();
+console.log('luau-compile-ok');
+"@ | Set-Content -LiteralPath $runner -Encoding utf8
+
+        $compileOutput = & node $runner 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            $tail = $compileOutput | Select-Object -Last 12
+            throw "Luau compile failed via ephemeral luau-web@1.4.0:`n$($tail -join "`n")"
+        }
+    } finally {
+        Remove-Item -Recurse -Force -LiteralPath $temp -ErrorAction SilentlyContinue
+    }
+}
+
 Assert-Contains 'Iron Soul Script by Bugon' 'Missing Bugon header branding'
 Assert-Contains '© 2026 Bugon\. All rights reserved\.' 'Missing Bugon footer branding'
 Assert-Contains 'AutoBuyWantedItemIds' 'Missing Grocery selection config'
@@ -29,21 +79,25 @@ Assert-Contains 'AutoStartWorldId\s*=\s*"World3"' 'Missing default auto-start wo
 Assert-Contains 'AutoStartDifficulty\s*=\s*10' 'Missing default auto-start difficulty config'
 Assert-Contains 'Config\.AutoStartWorldId\s*=\s*AutoStartWorldId' 'Auto-start world must persist'
 Assert-Contains 'Config\.AutoStartDifficulty\s*=\s*AutoStartDifficulty' 'Auto-start difficulty must persist'
-Assert-Contains 'local\s+AutoStartWorldId\s*=\s*Config\.AutoStartWorldId' 'Runtime world must load from config'
-Assert-Contains 'local\s+AutoStartDifficulty\s*=\s*Config\.AutoStartDifficulty' 'Runtime difficulty must load from config'
-Assert-Contains 'local\s+function\s+GetDungeonCatalog\(' 'Missing dungeon catalog helper'
+Assert-Contains 'LoadConfig\(\)\s*AutoStartWorldId\s*=\s*Config\.AutoStartWorldId\s*AutoStartDifficulty\s*=\s*Config\.AutoStartDifficulty' 'Runtime auto-start pair must be assigned after config load'
+Assert-Contains 'local\s+DungeonCatalog\s*=\s*\(function\(\)' 'Dungeon catalog state must use one top-level namespace'
+Assert-NotContains '(?m)^local\s+function\s+(?:GetWorldConfig|TranslateConfigName|GetDungeonCatalog|GetDifficultyCatalog|FindDungeonEntry|FindHighestUnlockedDifficulty|ValidateAutoStartSelection|SelectAutoStartWorld|SelectAutoStartDifficulty)\b' 'Dungeon catalog helpers must not consume top-level registers'
+Assert-Contains 'function\s+Catalog\.GetDungeonCatalog\(' 'Missing dungeon catalog helper'
 Assert-Contains 'Configs.*World.*ResWorld' 'Dungeon catalog must use ResWorld'
 Assert-Contains 'WorldUtil:IsUnlockWorld' 'Dungeon catalog must mark locked entries'
-Assert-Contains 'local\s+function\s+GetDifficultyCatalog\(' 'Missing difficulty catalog helper'
+Assert-Contains 'function\s+Catalog\.GetDifficultyCatalog\(' 'Missing difficulty catalog helper'
 Assert-Contains 'WorldUtil:GetWorldDiffInfo' 'Difficulty catalog must use WorldUtil data'
 Assert-Contains 'WorldUtil:GetWorldStyleList' 'Difficulty catalog must include Hell mappings'
 Assert-Contains 'RarityTiers:GetDifficultyName' 'Difficulty labels must use game names'
 Assert-NotContains 'DifficultyName\s*=\s*tostring\([^)]*(?:DiffInfo\.Difficulty|DiffLevel)' 'Difficulty labels must not fall back to internal numbers'
 Assert-Contains 'type\(DifficultyName\)\s*~=\s*"string"' 'Difficulty labels must reject non-string names'
 Assert-Contains 'tonumber\(DifficultyName\)' 'Difficulty labels must reject numeric names'
-Assert-Contains 'local\s+function\s+ValidateAutoStartSelection\(' 'Missing auto-start validation helper'
-Assert-Contains 'local\s+function\s+SelectAutoStartWorld\(' 'Missing dungeon selection helper'
-Assert-Contains 'local\s+function\s+SelectAutoStartDifficulty\(' 'Missing difficulty selection helper'
+Assert-Contains 'function\s+Catalog\.ValidateAutoStartSelection\(' 'Missing auto-start validation helper'
+Assert-Contains 'function\s+Catalog\.SelectAutoStartWorld\(' 'Missing dungeon selection helper'
+Assert-Contains 'function\s+Catalog\.SelectAutoStartDifficulty\(' 'Missing difficulty selection helper'
+Assert-Contains '(?s)function\s+Catalog\.ValidateAutoStartSelection\(PreferHighest\).*?local\s+CandidateWorldId\s*=.*?local\s+CandidateDifficulty\s*=.*?if\s+not\s+CandidateDifficulty\s+then\s*return\s+false\s*end.*?AutoStartWorldId\s*,\s*AutoStartDifficulty\s*=\s*CandidateWorldId\s*,\s*CandidateDifficulty\.Level' 'Validation must commit world+difficulty only after both candidates are valid'
+Assert-Contains '(?s)function\s+Catalog\.SelectAutoStartWorld\(WorldId\).*?local\s+CandidateDifficulty\s*=.*?if\s+not\s+CandidateDifficulty\s+then\s*return\s+false\s*end.*?AutoStartWorldId\s*,\s*AutoStartDifficulty\s*=\s*Entry\.WorldId\s*,\s*CandidateDifficulty\.Level' 'Dungeon selection must atomically commit an unlocked pair'
+Assert-Contains 'GetWorldRemoteEvent\(\):FireServer\("SelectWorld", AutoStartWorldId, AutoStartDifficulty\)\s*task\.wait\(0\.35\)\s*GetGameMatchRemoteEvent\(\):FireServer\("CreatRoom", AutoStartWorldId, AutoStartDifficulty, AutoStartMaxPlayers\)' 'Auto-start remotes or order changed'
 Assert-Contains 'local\s+function\s+GetGoldShopCatalog\(' 'Missing Gold catalog helper'
 Assert-Contains 'getupvalues' 'Gold catalog must attempt full runtime pool'
 Assert-Contains 'local\s+function\s+GetSeasonShopCatalog\(' 'Missing Season catalog helper'
@@ -68,6 +122,10 @@ Assert-Contains 'UtilityTab' 'Missing Utility tab'
 Assert-Contains 'DungeonPage' 'Missing Dungeon utility page'
 Assert-Contains 'DungeonDropdown' 'Missing dungeon dropdown'
 Assert-Contains 'DifficultyDropdown' 'Missing difficulty dropdown'
+Assert-Contains '(?s)DungeonDropdown\.Activated:Connect\(function\(\)\s*DifficultyOptions\.Visible\s*=\s*false\s*DungeonOptions\.Visible\s*=\s*not\s+DungeonOptions\.Visible\s*end\)' 'Opening dungeon dropdown must close difficulty dropdown'
+Assert-Contains '(?s)DifficultyDropdown\.Activated:Connect\(function\(\)\s*DungeonOptions\.Visible\s*=\s*false\s*DifficultyOptions\.Visible\s*=\s*not\s+DifficultyOptions\.Visible\s*end\)' 'Opening difficulty dropdown must close dungeon dropdown'
+Assert-Contains '(?s)local\s+function\s+BuildDungeonPage\(ForceRefresh\)\s*DungeonOptions\.Visible\s*=\s*false\s*DifficultyOptions\.Visible\s*=\s*false' 'Dungeon page rebuild must close both dropdowns'
+Assert-Contains '(?s)local\s+function\s+SetUtilityPage\(Name\)\s*DungeonOptions\.Visible\s*=\s*false\s*DifficultyOptions\.Visible\s*=\s*false' 'Utility tab switch must close both dropdowns'
 Assert-Contains 'SOLO 1/1' 'Missing fixed solo party status'
 Assert-Contains 'AFTER AUTO-SELL' 'Missing post-sell trigger status'
 Assert-Contains 'AUTO SELL' 'Auto Sell tab label must contain a space'
@@ -81,5 +139,7 @@ Assert-Contains '_G\.AutoSell\s+and\s+IsInLobby\s+and\s+IsInLobby\(\)' 'AutoSell
 $loaderContent = Get-Content -Raw -LiteralPath $loaderPath
 if ($loaderContent -notmatch 'holygrail/script-v6-full-run-dg\.lua') { throw 'Cloud loader must target script v6' }
 if ($loaderContent -match 'pastebin\.com') { throw 'Cloud loader must not depend on stale Pastebin script content' }
+
+Assert-LuauCompiles
 
 'v6-menu-ok'
