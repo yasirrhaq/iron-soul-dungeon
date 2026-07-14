@@ -15,6 +15,10 @@ function Assert-Contains($pattern, $message) {
     if ($content -notmatch $pattern) { throw $message }
 }
 
+function Assert-NotContains($pattern, $message) {
+    if ($content -match $pattern) { throw $message }
+}
+
 Assert-Contains 'Iron Soul Script by Bugon' 'Missing Bugon header branding'
 Assert-Contains '© 2026 Bugon\. All rights reserved\.' 'Missing Bugon footer branding'
 Assert-Contains 'AutoBuyWantedItemIds' 'Missing Grocery selection config'
@@ -34,6 +38,9 @@ Assert-Contains 'local\s+function\s+GetDifficultyCatalog\(' 'Missing difficulty 
 Assert-Contains 'WorldUtil:GetWorldDiffInfo' 'Difficulty catalog must use WorldUtil data'
 Assert-Contains 'WorldUtil:GetWorldStyleList' 'Difficulty catalog must include Hell mappings'
 Assert-Contains 'RarityTiers:GetDifficultyName' 'Difficulty labels must use game names'
+Assert-NotContains 'DifficultyName\s*=\s*tostring\([^)]*(?:DiffInfo\.Difficulty|DiffLevel)' 'Difficulty labels must not fall back to internal numbers'
+Assert-Contains 'type\(DifficultyName\)\s*~=\s*"string"' 'Difficulty labels must reject non-string names'
+Assert-Contains 'tonumber\(DifficultyName\)' 'Difficulty labels must reject numeric names'
 Assert-Contains 'local\s+function\s+ValidateAutoStartSelection\(' 'Missing auto-start validation helper'
 Assert-Contains 'local\s+function\s+SelectAutoStartWorld\(' 'Missing dungeon selection helper'
 Assert-Contains 'local\s+function\s+SelectAutoStartDifficulty\(' 'Missing difficulty selection helper'

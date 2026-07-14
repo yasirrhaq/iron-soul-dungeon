@@ -585,10 +585,13 @@ local function GetDifficultyCatalog(WorldId, ForceRefresh)
             return
         end
         Seen[DiffLevel] = true
-        local DifficultyName = tostring(DiffInfo.Difficulty or DiffLevel)
-        pcall(function()
-            DifficultyName = RarityTiers:GetDifficultyName(DiffInfo.Difficulty)
+        local NameSuccess, DifficultyName = pcall(function()
+            return RarityTiers:GetDifficultyName(DiffInfo.Difficulty)
         end)
+        if not NameSuccess or type(DifficultyName) ~= "string" or not string.find(DifficultyName, "%S") or
+            tonumber(DifficultyName) then
+            return
+        end
         if DiffInfo.Style == "Hell" then
             DifficultyName = "Hell (" .. DifficultyName .. ")"
         end
