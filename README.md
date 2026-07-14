@@ -4,9 +4,9 @@ Roblox Lua scripts for Iron Soul dungeon automation experiments.
 
 ## Active Script
 
-Use `holygrail/script-v5-full-run-dg.lua` for current full dungeon automation.
+Use `holygrail/script-v6-full-run-dg.lua` for current full dungeon automation and configurable native menu.
 
-Keep this path stable because external loaders/raw URLs may reference it.
+`holygrail/script-v5-full-run-dg.lua` remains the previous stable button-menu version.
 
 Feature behavior summary lives in `docs/features.md`.
 
@@ -17,6 +17,8 @@ Feature behavior summary lives in `docs/features.md`.
 - Auto replay on victory, or return to lobby when ore backpack is full.
 - Auto sell ores in lobby, then restart solo dungeon through an empty match-room portal.
 - Auto buy selected Gold shop and Season shop items.
+- Configure full Grocery, Season, and ore catalogs through searchable UI lists.
+- Set AutoSell max rarity and per-ore `AUTO`, `SELL`, or `KEEP` overrides.
 - Perfect Forge forces forge rating payloads to `15` when enabled.
 - Utility guards cover anti-AFK, semi-god state, noclip, anti-fall, and lobby pause behavior.
 
@@ -25,7 +27,8 @@ Feature behavior summary lives in `docs/features.md`.
 | Path | Purpose |
 | --- | --- |
 | `auto-load.lua` | Cloud loader bootstrap. |
-| `holygrail/script-v5-full-run-dg.lua` | Current active full-run dungeon script. |
+| `holygrail/script-v6-full-run-dg.lua` | Current active script with Bugon native menu. |
+| `holygrail/script-v5-full-run-dg.lua` | Previous stable button-menu script. |
 | `docs/features.md` | Brief explanation of each active feature. |
 | `scripts/base/` | Older base script line. |
 | `scripts/archive/auto-farm/` | Older auto-farm variants. |
@@ -45,8 +48,8 @@ Feature behavior summary lives in `docs/features.md`.
 
 ## Testing Checklist
 
-1. Run `holygrail/script-v5-full-run-dg.lua` in executor.
-2. Keep `SCRIPT: ON` and `AUTO REPLAY: YES`.
+1. Run `holygrail/script-v6-full-run-dg.lua` in executor.
+2. Keep `Script` and `Auto Replay` enabled in the `Farm` tab.
 3. Confirm enemy farm still works.
 4. Confirm portal progression advances stages, not repeated same portal loops.
 5. Confirm full backpack returns to lobby, sells, touches free match-room portal, then creates `1/1` dungeon.
@@ -56,7 +59,8 @@ Feature behavior summary lives in `docs/features.md`.
 Syntax-check active script:
 
 ```powershell
-cmd /c npx -y luaparse holygrail/script-v5-full-run-dg.lua > nul && echo syntax-ok
+cmd /c npx -y luaparse holygrail/script-v6-full-run-dg.lua > nul && echo syntax-ok
+.\tools\checks\check-v6-menu.ps1
 ```
 
 Run legacy base-script checks:

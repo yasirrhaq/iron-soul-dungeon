@@ -1,14 +1,15 @@
 # Feature Overview
 
-Brief behavior notes for `holygrail/script-v5-full-run-dg.lua`.
+Brief behavior notes for `holygrail/script-v6-full-run-dg.lua`.
 
-## Control Panel
+## Native Control Panel
 
-- `SCRIPT: ON/OFF` toggles main automation through `_G.AutoFarm`; turning it off clears current target and moves character upward.
-- `MODE: UNDERGROUND/ABOVE MONSTER` changes farm position relative to enemy target.
-- `AUTO REPLAY: YES/NO` controls victory replay, return-to-lobby sell flow, and post-sell dungeon restart.
-- `HEIGHT DISTANCE` slider controls orbit height and updates kill-aura range.
-- `PERFECT FORGE`, `AUTO BUY`, `AUTO SELL`, and `SEASON BUY` toggles persist to `IronSoulConfig/YasirConfigV3.json` when supported by executor file APIs.
+- Draggable panel uses header `Iron Soul Script by Bugon` and footer `© 2026 Bugon. All rights reserved.`
+- Main tabs separate `Farm` controls from `Utility` shop and sell configuration.
+- Minimize hides the panel behind a draggable floating `B` restore icon.
+- `Script` toggles main automation; disabling it clears target and moves character upward.
+- `Underground Mode`, `Auto Replay`, and height slider preserve previous farm behavior.
+- `Perfect Forge`, `Auto Buy`, `Auto Sell`, and `Season Buy` toggles persist to `IronSoulConfig/YasirConfigV3.json`.
 
 ## Farming And Combat
 
@@ -51,8 +52,10 @@ Brief behavior notes for `holygrail/script-v5-full-run-dg.lua`.
 
 - Ore backpack usage is total ore count compared with `ForgeUtil:GetMax(LocalPlayer)`.
 - Full backpack marks sell pending and returns to lobby after victory.
-- Lobby sell calls `ForgeRF:InvokeServer("Sell", SellList)` for configured low-rarity ores.
-- Keeps protected ores: `Blackhole`, `BloodHeart`, `Apocalypse`, and `DarkBlossom`.
+- Lobby sell calls `ForgeRF:InvokeServer("Sell", SellList)` for configured ores.
+- `Sell Max Rarity` controls which `AUTO` ores qualify.
+- Every ore definition has `AUTO`, `SELL`, and `KEEP` modes; `KEEP` wins over all other rules.
+- Default protected ores remain `Blackhole`, `BloodHeart`, `Apocalypse`, and `DarkBlossom`.
 - Confirms sell by re-reading ore counts; if ownership does not change, sell stays pending.
 
 ## Auto Restart Dungeon
@@ -65,9 +68,11 @@ Brief behavior notes for `holygrail/script-v5-full-run-dg.lua`.
 
 ## Shops
 
-- `AUTO BUY` scans Gold shop snapshot and buys wanted consumable items when slot state is `normal`.
-- `SEASON BUY` first tries `SeasonUtil:GetShopData(LocalPlayer)`, then falls back to GUI slot attributes.
-- Season target items are `RaceSpins` and `SeasonTicket`.
+- `Grocery` lists the full Gold pool through executor upvalues and falls back to current shop snapshot.
+- `Season` lists all `ResSeasonShop` definitions.
+- Searchable checkboxes choose which item IDs Auto Buy and Season Buy may purchase.
+- Selection tables persist in the same JSON config.
+- Runtime purchase loops still buy only selected items whose current slot state permits purchase.
 - Shop loops skip already-bought/limited items when buy counts or purchased GUI state are available.
 
 ## Perfect Forge
