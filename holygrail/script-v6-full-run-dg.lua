@@ -585,6 +585,7 @@ local DungeonCatalog = (function()
             if DiffInfo.Style == "Hell" then
                 DifficultyName = "Hell (" .. DifficultyName .. ")"
             end
+            DifficultyName = "[" .. tostring(DiffLevel) .. "] " .. DifficultyName
             local Unlocked = false
             pcall(function()
                 Unlocked = WorldUtil:IsUnlockWorld(LocalPlayer, WorldId, DiffLevel) == true
@@ -597,7 +598,7 @@ local DungeonCatalog = (function()
             })
         end
 
-        for DiffLevel = 1, 5 do
+        for DiffLevel = 1, 10 do
             AddDifficulty(DiffLevel)
         end
         local Success, HellList = pcall(function()
