@@ -66,6 +66,15 @@ Brief behavior notes for `holygrail/script-v6-full-run-dg.lua`.
 - It selects `World3`, difficulty `10`, then fires `GameMatchRE:FireServer("CreatRoom", "World3", 10, 1)` for solo `1/1` party.
 - Retry loop keeps trying while auto farm, auto replay, and no sell pending are true.
 
+## Auto-Start Dungeon Selector
+
+- Utility → Dungeon selects the dungeon and translated difficulty name used after successful lobby auto-sell.
+- Locked dungeons and difficulties remain visible as `LOCKED` but cannot be selected.
+- Selecting a dungeon automatically chooses its highest unlocked difficulty.
+- Internal difficulty numbers stay hidden; saved config keeps the internal world ID and difficulty level.
+- Normal victory replay remains `Play Again`; selector does not queue from lobby or add a manual start action.
+- Auto-start remains solo `1/1` and requires Auto Farm plus Auto Replay.
+
 ## Shops
 
 - `Grocery` lists the full Gold pool through executor upvalues and falls back to current shop snapshot.
