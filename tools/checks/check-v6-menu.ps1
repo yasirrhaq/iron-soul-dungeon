@@ -135,6 +135,11 @@ Assert-Contains 'SeasonPage' 'Missing Season page'
 Assert-Contains 'AutoSellPage' 'Missing AutoSell page'
 Assert-Contains 'AUTO\s*->\s*SELL\s*->\s*KEEP' 'Missing documented tri-state cycle'
 Assert-Contains '_G\.AutoSell\s+and\s+IsInLobby\s+and\s+IsInLobby\(\)' 'AutoSell must remain lobby-only'
+Assert-Contains 'local\s+OreStats\s*=\s*\{\s*Current\s*=\s*0\s*,\s*Max\s*=\s*0\s*\}' 'Missing ore stats cache'
+Assert-Contains 'ORE:\s*"\s*\.\.\s*tostring\(OreStats\.Current\)\s*\.\.\s*"/"\s*\.\.\s*tostring\(OreStats\.Max\)' 'Stats label must show ORE current/max'
+Assert-Contains 'Current\s*~=\s*OreStats\.Current\s+or\s+Max\s*~=\s*OreStats\.Max' 'Ore stats must refresh only when usage changes'
+Assert-Contains 'task\.wait\(1\.0\)' 'Ore stats polling interval must be one second'
+Assert-Contains 'StatsLabel\.Size\s*=\s*UDim2\.new\(1,\s*0,\s*0,\s*78\)' 'V6 stats label must fit three lines'
 
 $loaderContent = Get-Content -Raw -LiteralPath $loaderPath
 if ($loaderContent -notmatch 'holygrail/script-v6-full-run-dg\.lua') { throw 'Cloud loader must target script v6' }

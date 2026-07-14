@@ -193,6 +193,10 @@ local LastTriggeredEgg = nil
 local EggLockEnd = 0
 local ChestDestroyedCount = 0
 local EggTriggeredCount = 0
+local OreStats = {
+    Current = 0,
+    Max = 0
+}
 local CountedBreakables = {}
 local CountedEggTriggers = {}
 local StatsLabel = nil
@@ -1271,9 +1275,23 @@ end
 
 local function UpdateStatsLabel()
     if StatsLabel then
-        StatsLabel.Text = "CHEST DESTROYED: " .. ChestDestroyedCount .. "\nEGG TRIGGERED: " .. EggTriggeredCount
+        StatsLabel.Text = "CHEST DESTROYED: " .. tostring(ChestDestroyedCount) ..
+                              "\nEGG TRIGGERED: " .. tostring(EggTriggeredCount) ..
+                              "\nORE: " .. tostring(OreStats.Current) .. "/" .. tostring(OreStats.Max)
     end
 end
+
+task.spawn(function()
+    while true do
+        local Success, Current, Max = pcall(GetOreBackpackUsage)
+        if Success and (Current ~= OreStats.Current or Max ~= OreStats.Max) then
+            OreStats.Current = Current
+            OreStats.Max = Max
+            UpdateStatsLabel()
+        end
+        task.wait(1.0)
+    end
+end)
 
 IsInLobby = function()
     return workspace:FindFirstChild("MatchRoom") ~= nil and workspace:FindFirstChild("WorldEnemys") == nil and
@@ -3203,7 +3221,7 @@ RefreshV6Height()
 
 StatsLabel = Instance.new("TextLabel")
 StatsLabel.Name = "V6StatsLabel"
-StatsLabel.Size = UDim2.new(1, 0, 0, 62)
+StatsLabel.Size = UDim2.new(1, 0, 0, 78)
 StatsLabel.BackgroundColor3 = Theme.Surface
 StatsLabel.BorderSizePixel = 0
 StatsLabel.Font = Enum.Font.GothamMedium
