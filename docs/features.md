@@ -76,6 +76,16 @@ Brief behavior notes for `holygrail/script-v6-full-run-dg.lua`.
 - Normal victory replay remains `Play Again`; selector does not queue from lobby or add a manual start action.
 - Auto-start remains solo `1/1` and requires Auto Farm plus Auto Replay.
 
+## Auto Rejoin
+
+- Farm tab `Auto Rejoin` toggle persists and defaults to enabled.
+- Visible `Teleporting` loading must remain for 60 seconds before recovery begins; a visible disconnect reconnect button also triggers recovery.
+- Script stores only the latest lobby `PlaceId`, then retries recovery after 15, 30, and 60 seconds with a maximum of three attempts per ten minutes.
+- Recovery pauses combat, movement, replay, portal, shop, and auto-start requests to avoid overlapping server actions.
+- After Delta AutoExec reloads V6 in lobby, a full backpack runs lobby auto-sell first; otherwise the saved solo dungeon auto-start queues immediately.
+- `Bugon-teleport-log.txt` records session, detection, retry, failure, lobby, sell, and restart events when executor file APIs are available.
+- `HARD STUCK` stops further requests. Lua cannot reopen Roblox or BlueStacks after an engine or application-level freeze.
+
 ## Shops
 
 - `Grocery` lists the full Gold pool through executor upvalues and falls back to current shop snapshot.

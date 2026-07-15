@@ -10,6 +10,7 @@ local GuiService = game:GetService("GuiService")
 local UserInputService = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TeleportService = game:GetService("TeleportService")
 
 print("[Bugon V6] bootstrap started")
 
@@ -58,6 +59,10 @@ local Config = {
     SellMaxRarity = 5,
     AutoStartWorldId = "World3",
     AutoStartDifficulty = 10,
+    AutoRejoin = true,
+    LobbyPlaceId = 0,
+    RecoveryPending = false,
+    RejoinAttemptTimestamps = {},
     OreSellModes = CopyMap(DefaultOreSellModes)
 }
 
@@ -134,6 +139,21 @@ local function LoadConfig()
     Config.SellMaxRarity = math.floor(ClampNumber(Config.SellMaxRarity, 0, 10, 5))
     Config.AutoStartWorldId = type(Config.AutoStartWorldId) == "string" and Config.AutoStartWorldId or "World3"
     Config.AutoStartDifficulty = math.max(1, math.floor(tonumber(Config.AutoStartDifficulty) or 10))
+    Config.AutoRejoin = Config.AutoRejoin ~= false
+    Config.LobbyPlaceId = math.max(0, math.floor(tonumber(Config.LobbyPlaceId) or 0))
+    Config.RecoveryPending = Config.RecoveryPending == true
+    if type(Config.RejoinAttemptTimestamps) ~= "table" then
+        Config.RejoinAttemptTimestamps = {}
+    else
+        local ValidTimestamps = {}
+        for _, Timestamp in ipairs(Config.RejoinAttemptTimestamps) do
+            Timestamp = tonumber(Timestamp)
+            if Timestamp and Timestamp > 0 then
+                table.insert(ValidTimestamps, math.floor(Timestamp))
+            end
+        end
+        Config.RejoinAttemptTimestamps = ValidTimestamps
+    end
     Config.OreSellModes = NormalizeOreSellModes(Config.OreSellModes)
 end
 
@@ -150,6 +170,7 @@ local function SaveConfig()
     Config.SellMaxRarity = SellMaxRarity or Config.SellMaxRarity
     Config.AutoStartWorldId = AutoStartWorldId or Config.AutoStartWorldId
     Config.AutoStartDifficulty = AutoStartDifficulty or Config.AutoStartDifficulty
+    Config.AutoRejoin = _G.AutoRejoin
     Config.OreSellModes = OreSellModes or Config.OreSellModes
     local Berhasil, HasilJSON = pcall(function()
         return HttpService:JSONEncode(Config)
@@ -183,6 +204,7 @@ _G.PerfectForge = Config.PerfectForge
 _G.AutoBuy = Config.AutoBuy
 _G.AutoSell = Config.AutoSell
 _G.AutoSeasonBuy = Config.AutoSeasonBuy
+_G.AutoRejoin = Config.AutoRejoin
 
 local SudutPutar = 0
 local Target = nil
@@ -195,7 +217,8 @@ local ChestDestroyedCount = 0
 local EggTriggeredCount = 0
 local OreStats = {
     Current = 0,
-    Max = 0
+    Max = 0,
+    RejoinStatus = ""
 }
 local CountedBreakables = {}
 local CountedEggTriggers = {}
@@ -243,6 +266,276 @@ local AutoStartRetryDelay = 3.0
 local AutoStartMaxPlayers = 1
 local AutoStartPending = false
 local IsInLobby = nil
+local RejoinWatchdog = {
+    LoadingTimeout = 60,
+    RetryDelays = {15, 30, 60},
+    AttemptWindow = 600,
+    MaxAttempts = 3,
+    Status = Config.RecoveryPending and "WAIT LOBBY" or "IDLE",
+    LoadingSince = nil,
+    RecoveryActive = false,
+    RecoverySource = nil,
+    NextAttemptAt = nil,
+    Finalizing = false,
+    HardStuck = false,
+    ReconnectClicked = false,
+    PendingSince = Config.RecoveryPending and os.clock() or nil,
+    LogFile = "Bugon-teleport-log.txt",
+    Token = {
+        Alive = true
+    }
+}
+
+if _G.BugonRejoinWatchdogToken then
+    _G.BugonRejoinWatchdogToken.Alive = false
+end
+_G.BugonRejoinWatchdogToken = RejoinWatchdog.Token
+
+function RejoinWatchdog.Log(EventName, Detail)
+    local Line = string.format("[%s] %s place=%s job=%s%s\n", os.date("!%Y-%m-%dT%H:%M:%SZ"),
+        tostring(EventName), tostring(game.PlaceId), tostring(game.JobId),
+        Detail and (" " .. tostring(Detail)) or "")
+    print("[AutoRejoin] " .. tostring(EventName) .. (Detail and (" " .. tostring(Detail)) or ""))
+    pcall(function()
+        if appendfile then
+            appendfile(RejoinWatchdog.LogFile, Line)
+        elseif writefile then
+            local Existing = ""
+            if readfile and isfile and isfile(RejoinWatchdog.LogFile) then
+                Existing = readfile(RejoinWatchdog.LogFile)
+            end
+            writefile(RejoinWatchdog.LogFile, Existing .. Line)
+        end
+    end)
+end
+
+function RejoinWatchdog.IsGuiVisible(Object)
+    if not Object or not Object.Parent then
+        return false
+    end
+    local Current = Object
+    while Current and Current ~= game do
+        if Current:IsA("GuiObject") and not Current.Visible then
+            return false
+        end
+        if Current:IsA("LayerCollector") and not Current.Enabled then
+            return false
+        end
+        Current = Current.Parent
+    end
+    return true
+end
+
+function RejoinWatchdog.FindVisibleText(Root, Pattern)
+    if not Root then
+        return nil
+    end
+    for _, Object in ipairs(Root:GetDescendants()) do
+        if (Object:IsA("TextLabel") or Object:IsA("TextButton") or Object:IsA("TextBox")) and
+            RejoinWatchdog.IsGuiVisible(Object) and string.find(string.lower(tostring(Object.Text)), Pattern, 1, true) then
+            return Object
+        end
+    end
+    return nil
+end
+
+function RejoinWatchdog.FindReconnectButton()
+    local function Scan(Root)
+        if not Root then
+            return nil
+        end
+        for _, Object in ipairs(Root:GetDescendants()) do
+            if Object:IsA("GuiButton") and RejoinWatchdog.IsGuiVisible(Object) then
+                local Text = Object:IsA("TextButton") and Object.Text or ""
+                local SearchText = string.lower(Object.Name .. " " .. tostring(Text))
+                if string.find(SearchText, "reconnect", 1, true) then
+                    return Object
+                end
+            elseif (Object:IsA("TextLabel") or Object:IsA("TextButton")) and
+                RejoinWatchdog.IsGuiVisible(Object) and
+                string.find(string.lower(tostring(Object.Text)), "reconnect", 1, true) then
+                local Button = Object:FindFirstAncestorWhichIsA("GuiButton")
+                if Button then
+                    return Button
+                end
+            end
+        end
+        return nil
+    end
+
+    local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    local PlayerButton = Scan(PlayerGui)
+    if PlayerButton then
+        return PlayerButton
+    end
+    local Success, CoreGui = pcall(game.GetService, game, "CoreGui")
+    return Success and Scan(CoreGui) or nil
+end
+
+function RejoinWatchdog.ClickButton(Button)
+    if not Button or not RejoinWatchdog.IsGuiVisible(Button) then
+        return false
+    end
+    local Position = Button.AbsolutePosition + (Button.AbsoluteSize / 2)
+    VirtualInputManager:SendMouseButtonEvent(Position.X, Position.Y, 0, true, game, 0)
+    task.wait(0.05)
+    VirtualInputManager:SendMouseButtonEvent(Position.X, Position.Y, 0, false, game, 0)
+    if firesignal then
+        pcall(firesignal, Button.Activated)
+    end
+    return true
+end
+
+function RejoinWatchdog.PruneAttempts()
+    local Now = os.time()
+    local Valid = {}
+    for _, Timestamp in ipairs(Config.RejoinAttemptTimestamps or {}) do
+        if Now - Timestamp < RejoinWatchdog.AttemptWindow then
+            table.insert(Valid, Timestamp)
+        end
+    end
+    Config.RejoinAttemptTimestamps = Valid
+    return #Valid
+end
+
+function RejoinWatchdog.MarkHardStuck(Reason)
+    RejoinWatchdog.HardStuck = true
+    RejoinWatchdog.RecoveryActive = false
+    RejoinWatchdog.NextAttemptAt = nil
+    RejoinWatchdog.Finalizing = false
+    RejoinWatchdog.Status = "HARD STUCK"
+    RejoinWatchdog.Log("HARD_STUCK", Reason)
+end
+
+function RejoinWatchdog.ScheduleNextAttempt()
+    local AttemptCount = RejoinWatchdog.PruneAttempts()
+    if AttemptCount >= RejoinWatchdog.MaxAttempts then
+        RejoinWatchdog.Finalizing = true
+        RejoinWatchdog.NextAttemptAt = os.clock() + RejoinWatchdog.RetryDelays[#RejoinWatchdog.RetryDelays]
+        RejoinWatchdog.Status = "WAIT FINAL"
+        return
+    end
+    local Delay = RejoinWatchdog.RetryDelays[AttemptCount + 1]
+    RejoinWatchdog.NextAttemptAt = os.clock() + Delay
+    RejoinWatchdog.Status = "WAIT " .. tostring(Delay) .. "S"
+end
+
+function RejoinWatchdog.BeginRecovery(Source, ReconnectButton)
+    if not _G.AutoRejoin then
+        if RejoinWatchdog.Status ~= "DETECTED (OFF)" then
+            RejoinWatchdog.Log("RECOVERY_DETECTED_OFF", Source)
+        end
+        RejoinWatchdog.Status = "DETECTED (OFF)"
+        return
+    end
+    if not RejoinWatchdog.RecoveryActive then
+        RejoinWatchdog.Log("RECOVERY_DETECTED", Source)
+        RejoinWatchdog.RecoveryActive = true
+        RejoinWatchdog.RecoverySource = Source
+        RejoinWatchdog.HardStuck = false
+        Config.RecoveryPending = true
+        RejoinWatchdog.PendingSince = RejoinWatchdog.PendingSince or os.clock()
+        SaveConfig()
+    end
+    if ReconnectButton and not RejoinWatchdog.ReconnectClicked then
+        RejoinWatchdog.ReconnectClicked = RejoinWatchdog.ClickButton(ReconnectButton)
+        if RejoinWatchdog.ReconnectClicked then
+            RejoinWatchdog.Status = "RECONNECT"
+            RejoinWatchdog.Log("RECONNECT_CLICKED", Source)
+        end
+    end
+    if not RejoinWatchdog.NextAttemptAt then
+        RejoinWatchdog.ScheduleNextAttempt()
+    end
+end
+
+function RejoinWatchdog.AttemptLobbyTeleport()
+    if not RejoinWatchdog.RecoveryActive or RejoinWatchdog.HardStuck then
+        return
+    end
+    if Config.LobbyPlaceId <= 0 then
+        RejoinWatchdog.RecoveryActive = false
+        RejoinWatchdog.Status = "NO LOBBY ID"
+        RejoinWatchdog.Log("LOBBY_ID_MISSING")
+        return
+    end
+    local AttemptCount = RejoinWatchdog.PruneAttempts()
+    if AttemptCount >= RejoinWatchdog.MaxAttempts then
+        RejoinWatchdog.MarkHardStuck("attempt limit")
+        return
+    end
+    local AttemptNumber = AttemptCount + 1
+    table.insert(Config.RejoinAttemptTimestamps, os.time())
+    SaveConfig()
+    RejoinWatchdog.NextAttemptAt = nil
+    RejoinWatchdog.Status = "RETRY " .. tostring(AttemptNumber) .. "/" .. tostring(RejoinWatchdog.MaxAttempts)
+    RejoinWatchdog.Log("LOBBY_TELEPORT", "attempt=" .. tostring(AttemptNumber))
+    local Success, ErrorMessage = pcall(function()
+        TeleportService:Teleport(Config.LobbyPlaceId, LocalPlayer)
+    end)
+    if not Success then
+        RejoinWatchdog.Log("TELEPORT_CALL_FAILED", ErrorMessage)
+    end
+    RejoinWatchdog.ScheduleNextAttempt()
+end
+
+function RejoinWatchdog.BlocksAutomation()
+    return _G.AutoRejoin and (RejoinWatchdog.RecoveryActive or RejoinWatchdog.HardStuck)
+end
+
+function RejoinWatchdog.Tick()
+    local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    local TeleportText = RejoinWatchdog.FindVisibleText(PlayerGui, "teleporting")
+    local ReconnectButton = RejoinWatchdog.FindReconnectButton()
+    local CurrentTime = os.clock()
+
+    if ReconnectButton then
+        RejoinWatchdog.BeginRecovery("DISCONNECT", ReconnectButton)
+    end
+
+    if TeleportText then
+        RejoinWatchdog.LoadingSince = RejoinWatchdog.LoadingSince or CurrentTime
+        local Elapsed = CurrentTime - RejoinWatchdog.LoadingSince
+        if not RejoinWatchdog.RecoveryActive then
+            RejoinWatchdog.Status = "LOADING " .. tostring(math.floor(Elapsed)) .. "/60"
+        end
+        if Elapsed >= RejoinWatchdog.LoadingTimeout then
+            RejoinWatchdog.BeginRecovery("TELEPORT_TIMEOUT")
+        end
+    elseif not RejoinWatchdog.RecoveryActive then
+        RejoinWatchdog.LoadingSince = nil
+        RejoinWatchdog.ReconnectClicked = false
+        if not Config.RecoveryPending and not RejoinWatchdog.HardStuck then
+            RejoinWatchdog.Status = _G.AutoRejoin and "IDLE" or "OFF"
+        end
+    end
+
+    if Config.RecoveryPending and not IsInLobby() and not RejoinWatchdog.RecoveryActive and
+        CurrentTime - (RejoinWatchdog.PendingSince or CurrentTime) >= 10 then
+        RejoinWatchdog.BeginRecovery("PENDING_NOT_LOBBY")
+    end
+
+    if RejoinWatchdog.RecoveryActive and RejoinWatchdog.NextAttemptAt and CurrentTime >= RejoinWatchdog.NextAttemptAt then
+        if RejoinWatchdog.Finalizing then
+            RejoinWatchdog.MarkHardStuck("final grace expired")
+        else
+            RejoinWatchdog.AttemptLobbyTeleport()
+        end
+    end
+end
+
+TeleportService.TeleportInitFailed:Connect(function(Player, TeleportResult, ErrorMessage, PlaceId)
+    if not RejoinWatchdog.Token.Alive or Player ~= LocalPlayer then
+        return
+    end
+    RejoinWatchdog.Log("TELEPORT_INIT_FAILED",
+        "result=" .. tostring(TeleportResult) .. " place=" .. tostring(PlaceId) .. " error=" .. tostring(ErrorMessage))
+    if RejoinWatchdog.RecoveryActive then
+        RejoinWatchdog.ScheduleNextAttempt()
+    end
+end)
+
+RejoinWatchdog.Log("SESSION_START", "recoveryPending=" .. tostring(Config.RecoveryPending))
 
 local function GetConsumableShopUtilModule()
     if not ConsumableShopUtilModule then
@@ -283,7 +576,7 @@ end
 task.spawn(function()
     while true do
         task.wait(AutoBuyDelay)
-        if _G.AutoBuy then
+        if _G.AutoBuy and not RejoinWatchdog.BlocksAutomation() then
             pcall(TryAutoBuyGoldShopOnce)
         end
     end
@@ -443,7 +736,7 @@ end
 task.spawn(function()
     while true do
         task.wait(AutoSeasonBuyDelay)
-        if _G.AutoSeasonBuy then
+        if _G.AutoSeasonBuy and not RejoinWatchdog.BlocksAutomation() then
             pcall(TryAutoBuySeasonShopOnce)
         end
     end
@@ -1082,7 +1375,7 @@ local function PrepareScreenMatchForAutoStart(ScreenMatch)
 end
 
 local function TryAutoStartSoloDungeon()
-    if SellPending or not _G.AutoFarm or not _G.AutoReplay then
+    if RejoinWatchdog.BlocksAutomation() or SellPending or not _G.AutoFarm or not _G.AutoReplay then
         return false
     end
 
@@ -1130,6 +1423,17 @@ end
 local function QueueAutoStartSoloDungeon()
     AutoStartPending = true
     LastAutoStartRetryAt = 0
+    if Config.RecoveryPending then
+        Config.RecoveryPending = false
+        Config.RejoinAttemptTimestamps = {}
+        RejoinWatchdog.RecoveryActive = false
+        RejoinWatchdog.HardStuck = false
+        RejoinWatchdog.NextAttemptAt = nil
+        RejoinWatchdog.Finalizing = false
+        RejoinWatchdog.Status = "IDLE"
+        RejoinWatchdog.Log("AUTO_START_QUEUED")
+        SaveConfig()
+    end
     print("[AutoStart] Queued solo dungeon restart")
     TryAutoStartSoloDungeon()
 end
@@ -1224,10 +1528,30 @@ local function TryAutoSellOresOnce()
     end
 end
 
+function RejoinWatchdog.ProcessPostRejoin()
+    if not Config.RecoveryPending or not _G.AutoRejoin or RejoinWatchdog.BlocksAutomation() or not IsInLobby() then
+        return
+    end
+    local Success, Current, Max = pcall(GetOreBackpackUsage)
+    if not Success then
+        RejoinWatchdog.Status = "WAIT BACKPACK"
+        return
+    end
+    if Max > 0 and Current >= Max then
+        SellPending = true
+        SellPendingReason = "rejoin backpack full"
+        RejoinWatchdog.Status = "WAIT AUTO SELL"
+        return
+    end
+    RejoinWatchdog.Status = "QUEUE DUNGEON"
+    QueueAutoStartSoloDungeon()
+end
+
 task.spawn(function()
     while true do
         task.wait(0.5)
-        if AutoStartPending and _G.AutoFarm and _G.AutoReplay and not SellPending then
+        if AutoStartPending and _G.AutoFarm and _G.AutoReplay and not SellPending and
+            not RejoinWatchdog.BlocksAutomation() then
             local CurrentTime = os.clock()
             if (CurrentTime - LastAutoStartRetryAt) >= AutoStartRetryDelay then
                 LastAutoStartRetryAt = CurrentTime
@@ -1240,7 +1564,8 @@ end)
 task.spawn(function()
     while true do
         task.wait(AutoSellDelay)
-        if _G.AutoSell and IsInLobby and IsInLobby() then
+        if (_G.AutoSell or Config.RecoveryPending) and IsInLobby and IsInLobby() and
+            not RejoinWatchdog.BlocksAutomation() then
             pcall(TryAutoSellOresOnce)
         end
     end
@@ -1278,16 +1603,22 @@ local function UpdateStatsLabel()
     if StatsLabel then
         StatsLabel.Text = "CHEST DESTROYED: " .. tostring(ChestDestroyedCount) ..
                               "\nEGG TRIGGERED: " .. tostring(EggTriggeredCount) ..
-                              "\nORE: " .. tostring(OreStats.Current) .. "/" .. tostring(OreStats.Max)
+                              "\nORE: " .. tostring(OreStats.Current) .. "/" .. tostring(OreStats.Max) ..
+                              "\nREJOIN: " .. tostring(RejoinWatchdog.Status)
     end
 end
 
 task.spawn(function()
     while true do
         local Success, Current, Max = pcall(GetOreBackpackUsage)
+        local Changed = OreStats.RejoinStatus ~= RejoinWatchdog.Status
         if Success and (Current ~= OreStats.Current or Max ~= OreStats.Max) then
             OreStats.Current = Current
             OreStats.Max = Max
+            Changed = true
+        end
+        if Changed then
+            OreStats.RejoinStatus = RejoinWatchdog.Status
             UpdateStatsLabel()
         end
         task.wait(1.0)
@@ -1298,6 +1629,22 @@ IsInLobby = function()
     return workspace:FindFirstChild("MatchRoom") ~= nil and workspace:FindFirstChild("WorldEnemys") == nil and
                workspace:FindFirstChild("DragonEgg") == nil
 end
+
+task.spawn(function()
+    while RejoinWatchdog.Token.Alive do
+        task.wait(1.0)
+        if IsInLobby() and Config.LobbyPlaceId ~= game.PlaceId then
+            Config.LobbyPlaceId = game.PlaceId
+            RejoinWatchdog.Log("LOBBY_PLACE_CAPTURED", tostring(game.PlaceId))
+            SaveConfig()
+        end
+        local Success, ErrorMessage = pcall(RejoinWatchdog.Tick)
+        if not Success then
+            RejoinWatchdog.Log("WATCHDOG_ERROR", ErrorMessage)
+        end
+        pcall(RejoinWatchdog.ProcessPostRejoin)
+    end
+end)
 
 -- 1. FUNGSI ANTI-AFK
 if not _G.AntiAFK_Loaded then
@@ -1318,7 +1665,8 @@ PlatformPart.CanCollide = true
 PlatformPart.Parent = workspace
 
 RunService.Heartbeat:Connect(function()
-    if _G.AutoFarm and _G.UndergroundMode and not IsInLobby() and LocalPlayer.Character and
+    if _G.AutoFarm and _G.UndergroundMode and not RejoinWatchdog.BlocksAutomation() and not IsInLobby() and
+        LocalPlayer.Character and
         LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
         local MyRoot = LocalPlayer.Character.HumanoidRootPart
         PlatformPart.Position = Vector3.new(MyRoot.Position.X, MyRoot.Position.Y - 3.5, MyRoot.Position.Z)
@@ -1584,8 +1932,8 @@ end
 task.spawn(function()
     while true do
         task.wait(0.1)
-        if _G.AutoFarm and _G.AutoSkill and not IsInLobby() and LocalPlayer.Character and Target and not IsExtractingEgg and
-            not IsEnteringPortal then
+        if _G.AutoFarm and _G.AutoSkill and not RejoinWatchdog.BlocksAutomation() and not IsInLobby() and
+            LocalPlayer.Character and Target and not IsExtractingEgg and not IsEnteringPortal then
             local CurrentTime = os.clock()
             local IsAnimating, AnimationName = IsSkillAnimating()
             if IsAnimating then
@@ -1649,7 +1997,8 @@ end)
 
 -- ZERO-SPIKE JUMP SYSTEM
 RunService.Heartbeat:Connect(function()
-    if _G.AutoFarm and not IsInLobby() and LocalPlayer.Character and Target and not IsExtractingEgg and not IsEnteringPortal then
+    if _G.AutoFarm and not RejoinWatchdog.BlocksAutomation() and not IsInLobby() and LocalPlayer.Character and Target and
+        not IsExtractingEgg and not IsEnteringPortal then
         local CurrentTime = os.clock()
         if (CurrentTime - LastJumpTime) >= JumpInterval then
             LastJumpTime = CurrentTime
@@ -2419,7 +2768,7 @@ end
 
 task.spawn(function()
     while true do
-        if _G.AutoFarm then
+        if _G.AutoFarm and not RejoinWatchdog.BlocksAutomation() then
             if IsInLobby() then
                 Target = nil
                 TargetKind = nil
@@ -2472,7 +2821,8 @@ RunService.Heartbeat:Connect(function(dt)
     local Character = LocalPlayer.Character
     local MyRoot = Character and Character:FindFirstChild("HumanoidRootPart")
     local MyHumanoid = Character and Character:FindFirstChild("Humanoid")
-    if not MyRoot or not MyHumanoid or IsEnteringPortal or not _G.AutoFarm or IsInLobby() then
+    if not MyRoot or not MyHumanoid or IsEnteringPortal or not _G.AutoFarm or RejoinWatchdog.BlocksAutomation() or
+        IsInLobby() then
         return
     end
     if IsExtractingEgg then
@@ -2540,7 +2890,7 @@ RunService.Heartbeat:Connect(function(dt)
 end)
 
 RunService.Stepped:Connect(function()
-    if _G.AutoFarm and not IsInLobby() and LocalPlayer.Character then
+    if _G.AutoFarm and not RejoinWatchdog.BlocksAutomation() and not IsInLobby() and LocalPlayer.Character then
         for _, part in pairs(LocalPlayer.Character:GetChildren()) do
             if part:IsA("BasePart") then
                 part.CanCollide = false
@@ -2691,7 +3041,7 @@ StatsLabel.Parent = ScreenGui
 StatsLabel.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
 StatsLabel.BackgroundTransparency = 0.15
 StatsLabel.Position = UDim2.new(0.05, 0, 0.41, 232)
-StatsLabel.Size = UDim2.new(0, 160, 0, 48)
+StatsLabel.Size = UDim2.new(0, 160, 0, 64)
 StatsLabel.Font = Enum.Font.SourceSansBold
 StatsLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 StatsLabel.TextSize = 13
@@ -3142,6 +3492,19 @@ end, function(Value)
     SaveConfig()
 end)
 
+CreateToggleRow(FarmTab, "Auto Rejoin", function()
+    return _G.AutoRejoin
+end, function(Value)
+    _G.AutoRejoin = Value
+    if not Value then
+        RejoinWatchdog.RecoveryActive = false
+        RejoinWatchdog.HardStuck = false
+        RejoinWatchdog.NextAttemptAt = nil
+        RejoinWatchdog.Status = "OFF"
+    end
+    SaveConfig()
+end)
+
 local HeightCard = Instance.new("Frame")
 HeightCard.Size = UDim2.new(1, 0, 0, 62)
 HeightCard.BackgroundColor3 = Theme.Surface
@@ -3222,7 +3585,7 @@ RefreshV6Height()
 
 StatsLabel = Instance.new("TextLabel")
 StatsLabel.Name = "V6StatsLabel"
-StatsLabel.Size = UDim2.new(1, 0, 0, 78)
+StatsLabel.Size = UDim2.new(1, 0, 0, 96)
 StatsLabel.BackgroundColor3 = Theme.Surface
 StatsLabel.BorderSizePixel = 0
 StatsLabel.Font = Enum.Font.GothamMedium
