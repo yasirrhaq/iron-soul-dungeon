@@ -271,6 +271,7 @@ local RejoinWatchdog = {
     RetryDelays = {15, 30, 60},
     AttemptWindow = 600,
     MaxAttempts = 3,
+    FallbackScanInterval = 30,
     Status = Config.RecoveryPending and "WAIT LOBBY" or "IDLE",
     LoadingSince = nil,
     RecoveryActive = false,
@@ -279,6 +280,11 @@ local RejoinWatchdog = {
     Finalizing = false,
     HardStuck = false,
     ReconnectClicked = false,
+    TeleportText = nil,
+    ReconnectButton = nil,
+    LastFallbackScanAt = -math.huge,
+    SignalsBound = false,
+    PromptGuiBound = nil,
     PendingSince = Config.RecoveryPending and os.clock() or nil,
     LogFile = "Bugon-teleport-log.txt",
     Token = {
@@ -330,13 +336,17 @@ function RejoinWatchdog.FindVisibleText(Root, Pattern)
     if not Root then
         return nil
     end
+    local HiddenMatch = nil
     for _, Object in ipairs(Root:GetDescendants()) do
         if (Object:IsA("TextLabel") or Object:IsA("TextButton") or Object:IsA("TextBox")) and
-            RejoinWatchdog.IsGuiVisible(Object) and string.find(string.lower(tostring(Object.Text)), Pattern, 1, true) then
-            return Object
+            string.find(string.lower(tostring(Object.Text)), Pattern, 1, true) then
+            if RejoinWatchdog.IsGuiVisible(Object) then
+                return Object
+            end
+            HiddenMatch = HiddenMatch or Object
         end
     end
-    return nil
+    return HiddenMatch
 end
 
 function RejoinWatchdog.FindReconnectButton()
@@ -363,13 +373,95 @@ function RejoinWatchdog.FindReconnectButton()
         return nil
     end
 
-    local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
-    local PlayerButton = Scan(PlayerGui)
-    if PlayerButton then
-        return PlayerButton
-    end
     local Success, CoreGui = pcall(game.GetService, game, "CoreGui")
-    return Success and Scan(CoreGui) or nil
+    if not Success then
+        return nil
+    end
+    local RobloxPromptGui = CoreGui:FindFirstChild("RobloxPromptGui")
+    local PromptOverlay = RobloxPromptGui and RobloxPromptGui:FindFirstChild("promptOverlay")
+    return Scan(PromptOverlay)
+end
+
+function RejoinWatchdog.TrackGuiObject(Object)
+    if not _G.AutoRejoin or not Object then
+        return
+    end
+    if (Object:IsA("TextLabel") or Object:IsA("TextButton") or Object:IsA("TextBox")) and
+        string.find(string.lower(tostring(Object.Text)), "teleporting", 1, true) then
+        RejoinWatchdog.TeleportText = Object
+    end
+    local ReconnectButton = nil
+    if Object:IsA("GuiButton") then
+        local Text = Object:IsA("TextButton") and Object.Text or ""
+        local SearchText = string.lower(Object.Name .. " " .. tostring(Text))
+        if string.find(SearchText, "reconnect", 1, true) then
+            ReconnectButton = Object
+        end
+    elseif Object:IsA("TextLabel") or Object:IsA("TextButton") then
+        if string.find(string.lower(tostring(Object.Text)), "reconnect", 1, true) then
+            ReconnectButton = Object:FindFirstAncestorWhichIsA("GuiButton")
+        end
+    end
+    if ReconnectButton then
+        RejoinWatchdog.ReconnectButton = ReconnectButton
+    end
+end
+
+function RejoinWatchdog.RefreshCachedTargets(Force)
+    if not _G.AutoRejoin then
+        return
+    end
+    local CurrentTime = os.clock()
+    if not Force and CurrentTime - RejoinWatchdog.LastFallbackScanAt < RejoinWatchdog.FallbackScanInterval then
+        return
+    end
+    RejoinWatchdog.LastFallbackScanAt = CurrentTime
+    if not RejoinWatchdog.TeleportText or not RejoinWatchdog.TeleportText.Parent or
+        not RejoinWatchdog.IsGuiVisible(RejoinWatchdog.TeleportText) then
+        RejoinWatchdog.TeleportText = RejoinWatchdog.FindVisibleText(LocalPlayer:FindFirstChild("PlayerGui"), "teleporting")
+    end
+    if not RejoinWatchdog.ReconnectButton or not RejoinWatchdog.ReconnectButton.Parent or
+        not RejoinWatchdog.IsGuiVisible(RejoinWatchdog.ReconnectButton) then
+        RejoinWatchdog.ReconnectButton = RejoinWatchdog.FindReconnectButton()
+    end
+end
+
+function RejoinWatchdog.BindPromptGui(RobloxPromptGui)
+    if not RobloxPromptGui or RejoinWatchdog.PromptGuiBound == RobloxPromptGui then
+        return
+    end
+    RejoinWatchdog.PromptGuiBound = RobloxPromptGui
+    for _, Object in ipairs(RobloxPromptGui:GetDescendants()) do
+        RejoinWatchdog.TrackGuiObject(Object)
+    end
+    RobloxPromptGui.DescendantAdded:Connect(function(Object)
+        if RejoinWatchdog.Token.Alive then
+            RejoinWatchdog.TrackGuiObject(Object)
+        end
+    end)
+end
+
+function RejoinWatchdog.BindGuiSignals()
+    if RejoinWatchdog.SignalsBound then
+        return
+    end
+    RejoinWatchdog.SignalsBound = true
+    local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+    PlayerGui.DescendantAdded:Connect(function(Object)
+        if RejoinWatchdog.Token.Alive then
+            RejoinWatchdog.TrackGuiObject(Object)
+        end
+    end)
+    local Success, CoreGui = pcall(game.GetService, game, "CoreGui")
+    if Success then
+        RejoinWatchdog.BindPromptGui(CoreGui:FindFirstChild("RobloxPromptGui"))
+        CoreGui.ChildAdded:Connect(function(Child)
+            if RejoinWatchdog.Token.Alive and Child.Name == "RobloxPromptGui" then
+                RejoinWatchdog.BindPromptGui(Child)
+            end
+        end)
+    end
+    RejoinWatchdog.RefreshCachedTargets(true)
 end
 
 function RejoinWatchdog.ClickButton(Button)
@@ -484,10 +576,24 @@ function RejoinWatchdog.BlocksAutomation()
 end
 
 function RejoinWatchdog.Tick()
-    local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
-    local TeleportText = RejoinWatchdog.FindVisibleText(PlayerGui, "teleporting")
-    local ReconnectButton = RejoinWatchdog.FindReconnectButton()
     local CurrentTime = os.clock()
+    if not _G.AutoRejoin then
+        RejoinWatchdog.LoadingSince = nil
+        RejoinWatchdog.Status = "OFF"
+        return
+    end
+    RejoinWatchdog.RefreshCachedTargets(false)
+    local TeleportText = RejoinWatchdog.TeleportText
+    if TeleportText and (not TeleportText.Parent or not RejoinWatchdog.IsGuiVisible(TeleportText) or
+        not string.find(string.lower(tostring(TeleportText.Text)), "teleporting", 1, true)) then
+        TeleportText = nil
+        RejoinWatchdog.TeleportText = nil
+    end
+    local ReconnectButton = RejoinWatchdog.ReconnectButton
+    if ReconnectButton and (not ReconnectButton.Parent or not RejoinWatchdog.IsGuiVisible(ReconnectButton)) then
+        ReconnectButton = nil
+        RejoinWatchdog.ReconnectButton = nil
+    end
 
     if ReconnectButton then
         RejoinWatchdog.BeginRecovery("DISCONNECT", ReconnectButton)
@@ -1629,6 +1735,8 @@ IsInLobby = function()
     return workspace:FindFirstChild("MatchRoom") ~= nil and workspace:FindFirstChild("WorldEnemys") == nil and
                workspace:FindFirstChild("DragonEgg") == nil
 end
+
+RejoinWatchdog.BindGuiSignals()
 
 task.spawn(function()
     while RejoinWatchdog.Token.Alive do
@@ -3501,6 +3609,9 @@ end, function(Value)
         RejoinWatchdog.HardStuck = false
         RejoinWatchdog.NextAttemptAt = nil
         RejoinWatchdog.Status = "OFF"
+    else
+        RejoinWatchdog.LastFallbackScanAt = -math.huge
+        RejoinWatchdog.RefreshCachedTargets(true)
     end
     SaveConfig()
 end)

@@ -8,6 +8,10 @@ function Assert-Contains($pattern, $message) {
     if ($content -notmatch $pattern) { throw $message }
 }
 
+function Assert-NotContains($pattern, $message) {
+    if ($content -match $pattern) { throw $message }
+}
+
 & git -C $root diff HEAD --quiet -- 'holygrail/script-v5-full-run-dg.lua'
 if ($LASTEXITCODE -ne 0) { throw 'script-v5 must remain unchanged' }
 
@@ -27,5 +31,14 @@ Assert-Contains 'REJOIN:' 'Missing watchdog status'
 Assert-Contains 'Config\.RecoveryPending.*IsInLobby\(\)' 'Missing post-rejoin lobby flow'
 Assert-Contains '\(_G\.AutoSell\s+or\s+Config\.RecoveryPending\).*IsInLobby' 'Recovery must permit required lobby auto-sell'
 Assert-Contains 'not\s+RejoinWatchdog\.BlocksAutomation\(\)' 'Recovery must gate automation'
+Assert-Contains 'FallbackScanInterval\s*=\s*30' 'Fallback GUI scan must be 30 seconds'
+Assert-Contains 'PlayerGui\.DescendantAdded:Connect' 'Teleport UI detection must use PlayerGui events'
+Assert-Contains 'CoreGui\.ChildAdded:Connect' 'Reconnect root detection must use CoreGui child events'
+Assert-Contains 'RobloxPromptGui\.DescendantAdded:Connect' 'Reconnect detection must stay inside RobloxPromptGui'
+Assert-NotContains 'CoreGui\.DescendantAdded:Connect' 'Reconnect detection must not watch every CoreGui descendant'
+Assert-Contains 'function\s+RejoinWatchdog\.RefreshCachedTargets\(' 'Missing cached-target refresh'
+Assert-Contains '(?s)function\s+RejoinWatchdog\.Tick\(\).*?if\s+not\s+_G\.AutoRejoin\s+then.*?return' 'Auto Rejoin off must skip detection work'
+Assert-NotContains 'local\s+TeleportText\s*=\s*RejoinWatchdog\.FindVisibleText' 'Tick must not scan PlayerGui every second'
+Assert-NotContains 'local\s+ReconnectButton\s*=\s*RejoinWatchdog\.FindReconnectButton' 'Tick must not scan reconnect GUI every second'
 
 'v6-auto-rejoin-ok'
