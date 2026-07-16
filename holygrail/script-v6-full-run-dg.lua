@@ -1788,9 +1788,52 @@ function AutoForge.WaitForData(ForgeUtil, ExpectedOreCount, Timeout)
     return nil
 end
 
+function AutoForge.WaitForQTEProgress(ForgeUtil, ExpectedTimes, PreviousUUID, Timeout)
+    local Deadline = os.clock() + Timeout
+    repeat
+        local Success, QTEData = pcall(ForgeUtil.GetQTE, ForgeUtil, LocalPlayer)
+        if Success and type(QTEData) == "table" and (tonumber(QTEData.Times) or 0) >= ExpectedTimes and
+            QTEData.UUID ~= PreviousUUID then
+            return QTEData
+        end
+        task.wait(0.05)
+    until os.clock() >= Deadline
+    return nil
+end
+
+function AutoForge.WaitForResult(ForgeUtil, Timeout)
+    local Deadline = os.clock() + Timeout
+    repeat
+        local Success, ResultData = pcall(ForgeUtil.GetResult, ForgeUtil, LocalPlayer)
+        if Success and type(ResultData) == "table" and ResultData.ID then
+            return ResultData
+        end
+        task.wait(0.1)
+    until os.clock() >= Deadline
+    return nil
+end
+
+function AutoForge.WaitForResultClear(ForgeUtil, Timeout)
+    local Deadline = os.clock() + Timeout
+    repeat
+        local Success, ForgeData = pcall(ForgeUtil.GetForgeData, ForgeUtil, LocalPlayer)
+        if Success and (type(ForgeData) ~= "table" or ForgeData.ForgeState == nil) then
+            return true
+        end
+        task.wait(0.1)
+    until os.clock() >= Deadline
+    return false
+end
+
 function AutoForge.RunCraft(Recipe, Composition)
-    local ForgeUtil = GetFrameworkModule().Modules.ForgeUtil
-    GetForgeRemoteFunction():InvokeServer("DropOres", Composition, Recipe.Category, Recipe.RelicId)
+    local Framework = GetFrameworkModule()
+    local ForgeUtil = Framework.Modules.ForgeUtil
+    local WindowUtil = Framework.Modules.WindowUtil
+    local ForgeRemote = GetForgeRemoteFunction()
+    local Accepted = ForgeRemote:InvokeServer("DropOres", Composition, Recipe.Category, Recipe.RelicId)
+    if Accepted ~= true then
+        error("DropOres rejected")
+    end
 
     local ForgeData = AutoForge.WaitForData(ForgeUtil, Recipe.OreCount, 5.0)
     if not ForgeData then
@@ -1800,21 +1843,34 @@ function AutoForge.RunCraft(Recipe, Composition)
     local QTEConfig = ForgeUtil:GetForgeQTE(ForgeData.OresNum)
     local CompletedQTE = tonumber(ForgeData.QTE.Times) or 0
     local TotalQTE = tonumber(QTEConfig and QTEConfig.QT) or 0
-    for _ = CompletedQTE + 1, TotalQTE do
+    for QTEIndex = CompletedQTE + 1, TotalQTE do
         local QTEData = ForgeUtil:GetQTE(LocalPlayer)
         if type(QTEData) ~= "table" or not QTEData.UUID then
             error("missing QTE UUID")
         end
-        ForgeUtil:QTE(LocalPlayer, {
+        local PreviousUUID = QTEData.UUID
+        ForgeRemote:InvokeServer("QTE", {
             UUID = QTEData.UUID,
             Rating = 15
         })
-        task.wait(0.15)
+        if not AutoForge.WaitForQTEProgress(ForgeUtil, QTEIndex, PreviousUUID, 3.0) then
+            error("QTE progress timeout")
+        end
     end
 
-    ForgeUtil:ForgeFinish(LocalPlayer)
-    task.wait(0.5)
-    GetForgeRemoteFunction():InvokeServer("ForgeResult", true)
+    local Finished, ResultData = ForgeRemote:InvokeServer("ForgeFinish")
+    if Finished ~= true or type(ResultData) ~= "table" or not ResultData.ID then
+        error("ForgeFinish rejected")
+    end
+    local SyncedResult = AutoForge.WaitForResult(ForgeUtil, 5.0)
+    if not SyncedResult then
+        error("forge result replication timeout")
+    end
+    AutoForge.SetStatus("WAIT RESULT - " .. GetItemDisplayName(SyncedResult.ID))
+    WindowUtil:Open("ScreenForgeResult")
+    if not AutoForge.WaitForResultClear(ForgeUtil, 600.0) then
+        error("forge result decision timeout")
+    end
 end
 
 function AutoForge.StartBatch()

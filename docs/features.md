@@ -109,7 +109,8 @@ Brief behavior notes for `holygrail/script-v6-full-run-dg.lua`.
 - Relic counts come from Crystals inventory through `KeyString.EquipmentUtil.Crystals`; Common and Luxury Fist recipes consume `FistRelic_1` and `FistRelic_2` respectively.
 - Batch maximum uses the lowest `floor(owned/per-craft)` ore limit and optional relic count. Requested count displays an automatic clamp when inventory supports fewer crafts.
 - Auto Forge defaults off and consumes nothing until user enables it and presses `START FORGE` in lobby.
-- Direct flow calls `DropOres`, resumes server QTE progress with fresh UUID values and rating `15`, finishes forge, then acknowledges every random result.
+- Direct flow calls `DropOres`, submits server QTE progress with fresh UUID values and rating `15`, and finishes without requiring the forge proximity interaction.
+- Each completed craft opens the native result screen and pauses the batch until the player selects Accept or Delete; results are never acknowledged before they are shown.
 - Turning Auto Forge off during a batch finishes current craft, then stops before next craft. Auto-sell and rejoin recovery cannot overlap an active forge batch.
 
 ## Safety And Utility
