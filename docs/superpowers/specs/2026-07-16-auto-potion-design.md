@@ -102,7 +102,7 @@ For a potion with multiple configured Buff IDs:
 
 - Treat the potion as active only when every configured buff attribute is active.
 - Queue one potion when any required buff attribute becomes inactive.
-- Confirm success when every configured buff attribute becomes active or owned amount decreases.
+- Treat owned amount decrease only as proof that the server accepted the request. Keep the potion activation-latched until every configured buff attribute becomes active.
 
 ## Event-Driven Refresh
 
@@ -176,9 +176,10 @@ Before sending:
 After sending:
 
 1. Mark the potion pending.
-2. Wait up to five seconds for all required buff attributes to become active or for owned amount to decrease.
-3. Clear pending state after success or timeout.
-4. On timeout, do not immediately resend. Let the next 15-second sanity scan decide whether another request is needed.
+2. Record owned amount decrease as request acceptance, but continue waiting up to five seconds for all required buff attributes to become active.
+3. Clear pending after active attributes confirm success.
+4. If ownership decreased but attributes remain inactive, keep an activation latch and do not send another potion until those attributes are observed active or Auto Potion is reset.
+5. If ownership did not decrease and attributes remain inactive, let the next 15-second sanity scan decide whether another request is needed.
 
 This limits one failed request to at most one retry per sanity interval.
 

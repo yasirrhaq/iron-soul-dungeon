@@ -80,6 +80,7 @@ local AutoPotion = {
     Order = {},
     ByBuffId = {},
     Pending = {},
+    ActivationPending = {},
     RetryOnScan = {},
     Queue = {},
     Queued = {},
@@ -1408,17 +1409,19 @@ function AutoPotion.AreBuffsActive(BuffIds, GetValue)
     return true
 end
 
-function AutoPotion.ShouldQueueState(Selected, Owned, Active, Queued, Pending)
-    return Selected == true and (tonumber(Owned) or 0) > 0 and not Active and not Queued and not Pending
+function AutoPotion.ShouldQueueState(Selected, Owned, Active, Queued, Pending, ActivationPending)
+    return Selected == true and (tonumber(Owned) or 0) > 0 and not Active and not Queued and not Pending and
+               not ActivationPending
 end
 
 function AutoPotion.RunSelfCheck()
     local Cases = {
-        {Name = "one selected potion", Actual = AutoPotion.ShouldQueueState(true, 1, false, false, false), Expected = true},
-        {Name = "multiple independent potions", Actual = AutoPotion.ShouldQueueState(true, 2, true, false, false), Expected = false},
+        {Name = "one selected potion", Actual = AutoPotion.ShouldQueueState(true, 1, false, false, false, false), Expected = true},
+        {Name = "multiple independent potions", Actual = AutoPotion.ShouldQueueState(true, 2, true, false, false, false), Expected = false},
         {Name = "multi-buff potion", Actual = AutoPotion.AreBuffsActive({"A", "B"}, function(Id) return Id == "A" and 1 or 0 end), Expected = false},
-        {Name = "out-of-stock potion", Actual = AutoPotion.ShouldQueueState(true, 0, false, false, false), Expected = false},
-        {Name = "missed-signal recovery", Actual = AutoPotion.ShouldQueueState(true, 1, false, false, false), Expected = true},
+        {Name = "out-of-stock potion", Actual = AutoPotion.ShouldQueueState(true, 0, false, false, false, false), Expected = false},
+        {Name = "missed-signal recovery", Actual = AutoPotion.ShouldQueueState(true, 1, false, false, false, false), Expected = true},
+        {Name = "owned decrease waits for buff activation", Actual = AutoPotion.ShouldQueueState(true, 1, false, false, false, true), Expected = false},
         {Name = "Bond exclusion", Actual = AutoPotion.ShouldCatalog({PotionType = "BondIntimacy"}), Expected = false}
     }
     for _, Case in ipairs(Cases) do
@@ -1575,7 +1578,7 @@ function AutoPotion.GetEntryState(Entry)
     if not Entry or #Entry.BuffIds <= 0 or not AutoPotion.GetPlayerAttrEntry() then
         return "Unavailable"
     end
-    if AutoPotion.Pending[Entry.PotionId] then
+    if AutoPotion.Pending[Entry.PotionId] or AutoPotion.ActivationPending[Entry.PotionId] then
         return "Pending"
     end
     if AutoPotion.IsEntryActive(Entry) then
@@ -1626,8 +1629,11 @@ function AutoPotion.EvaluatePotion(PotionId, AllowRetry)
     local PotionUtil = GetFrameworkModule().Modules.PotionUtil
     Entry.Owned = tonumber(PotionUtil:GetOwnedAmount(LocalPlayer, PotionId)) or 0
     local Active = AutoPotion.IsEntryActive(Entry)
+    if Active then
+        AutoPotion.ActivationPending[PotionId] = nil
+    end
     if AutoPotion.ShouldQueueState(true, Entry.Owned, Active, AutoPotion.Queued[PotionId],
-        AutoPotion.Pending[PotionId]) then
+        AutoPotion.Pending[PotionId], AutoPotion.ActivationPending[PotionId]) then
         return AutoPotion.Enqueue(PotionId)
     end
     return false
@@ -1678,11 +1684,14 @@ function AutoPotion.UseOne(PotionId)
     if not Success then
         warn("[AutoPotion] USE ERROR " .. PotionId .. ": " .. tostring(ErrorMessage))
     else
+        local RequestAccepted = false
         local Deadline = os.clock() + AutoPotion.ConfirmTimeout
         repeat
             Entry.Owned = tonumber(PotionUtil:GetOwnedAmount(LocalPlayer, PotionId)) or 0
-            if AutoPotion.IsEntryActive(Entry) or Entry.Owned < BeforeOwned then
+            RequestAccepted = RequestAccepted or Entry.Owned < BeforeOwned
+            if AutoPotion.IsEntryActive(Entry) then
                 print("[AutoPotion] USED " .. PotionId .. " x1")
+                AutoPotion.ActivationPending[PotionId] = nil
                 AutoPotion.RetryOnScan[PotionId] = nil
                 AutoPotion.SetStatus("ACTIVE " .. PotionId)
                 AutoPotion.Pending[PotionId] = nil
@@ -1691,9 +1700,15 @@ function AutoPotion.UseOne(PotionId)
             end
             task.wait(0.1)
         until os.clock() >= Deadline
-        warn("[AutoPotion] USE TIMEOUT " .. PotionId)
-        AutoPotion.RetryOnScan[PotionId] = true
-        AutoPotion.SetStatus("USE TIMEOUT " .. PotionId)
+        if RequestAccepted then
+            AutoPotion.ActivationPending[PotionId] = true
+            AutoPotion.RetryOnScan[PotionId] = nil
+            AutoPotion.SetStatus("WAITING BUFF " .. PotionId)
+        else
+            warn("[AutoPotion] USE TIMEOUT " .. PotionId)
+            AutoPotion.RetryOnScan[PotionId] = true
+            AutoPotion.SetStatus("USE TIMEOUT " .. PotionId)
+        end
     end
     AutoPotion.Pending[PotionId] = nil
     AutoPotion.RefreshState()
@@ -1779,6 +1794,7 @@ function AutoPotion.SetEnabled(Enabled)
         AutoPotion.DisconnectSignals()
         table.clear(AutoPotion.Queue)
         table.clear(AutoPotion.Queued)
+        table.clear(AutoPotion.ActivationPending)
         AutoPotion.SetStatus("OFF")
         return
     end
@@ -1795,6 +1811,7 @@ function AutoPotion.Shutdown()
     AutoPotion.DisconnectSignals()
     table.clear(AutoPotion.Queue)
     table.clear(AutoPotion.Queued)
+    table.clear(AutoPotion.ActivationPending)
 end
 
 AutoPotion.RunSelfCheck()

@@ -120,7 +120,7 @@ Brief behavior notes for `holygrail/script-v6-full-run-dg.lua`.
 - Each checked potion type is independent and always consumes exactly one item through native `PotionUtil:UsePotion(LocalPlayer, PotionId, 1, nil)`.
 - Selected potions are used only inside an active dungeon when at least one configured `BuffIdN` attribute is inactive. Lobby, loading, settlement, and rejoin recovery block requests.
 - Buff attribute change signals drive normal refresh. One 15-second fallback scan recovers missed replication; disabled Auto Potion disconnects signals and performs no scans.
-- Multiple expired buffs enter one deduplicated queue with 0.65-second request spacing. Failed confirmation waits for the next fallback scan before retrying.
+- Multiple expired buffs enter one deduplicated queue with 0.65-second request spacing. Inventory decrease proves server acceptance but stays activation-latched until the native buff attribute turns active, preventing repeated consumption during replication delay.
 - Potion rows show translated name, owned count, and `Active`, `Inactive`, `Pending`, `Out of Stock`, or `Unavailable`; no guessed countdown is displayed.
 
 ## Safety And Utility
