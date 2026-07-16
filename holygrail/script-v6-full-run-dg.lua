@@ -71,6 +71,27 @@ local AutoForge = {
         Token = {Alive = true}
     }
 }
+local AutoPotion = {
+    ScanInterval = 15,
+    QueueSpacing = 0.65,
+    ConfirmTimeout = 5,
+    Selected = nil,
+    Catalog = {},
+    Order = {},
+    ByBuffId = {},
+    Pending = {},
+    RetryOnScan = {},
+    Queue = {},
+    Queued = {},
+    Connections = {},
+    LifecycleConnections = {},
+    WorkerRunning = false,
+    ScanGeneration = 0,
+    LastRequestAt = -math.huge,
+    Status = "OFF",
+    Refresh = nil,
+    Token = {Alive = true}
+}
 local AutoBuyWantedItemIds = nil
 local AutoSeasonBuyWantedItemIds = nil
 local SellMaxRarity = nil
@@ -85,6 +106,8 @@ local Config = {
     AutoSell = false,
     AutoSeasonBuy = false,
     AutoForge = false,
+    AutoPotion = false,
+    AutoPotionSelected = {},
     AutoBuyWantedItemIds = CopyMap(DefaultAutoBuyWantedItemIds),
     AutoSeasonBuyWantedItemIds = CopyMap(DefaultAutoSeasonBuyWantedItemIds),
     AutoForgeRecipeId = "WeaponSword",
@@ -182,6 +205,8 @@ local function LoadConfig()
     Config.AutoSell = Config.AutoSell == true
     Config.AutoSeasonBuy = Config.AutoSeasonBuy == true
     Config.AutoForge = Config.AutoForge == true
+    Config.AutoPotion = Config.AutoPotion == true
+    Config.AutoPotionSelected = NormalizeEnabledMap(Config.AutoPotionSelected, {})
     Config.AutoBuyWantedItemIds = NormalizeEnabledMap(Config.AutoBuyWantedItemIds, DefaultAutoBuyWantedItemIds)
     Config.AutoSeasonBuyWantedItemIds = NormalizeEnabledMap(Config.AutoSeasonBuyWantedItemIds,
         DefaultAutoSeasonBuyWantedItemIds)
@@ -218,6 +243,8 @@ local function SaveConfig()
     Config.AutoSell = _G.AutoSell
     Config.AutoSeasonBuy = _G.AutoSeasonBuy
     Config.AutoForge = _G.AutoForge
+    Config.AutoPotion = _G.AutoPotion
+    Config.AutoPotionSelected = AutoPotion.Selected
     Config.AutoBuyWantedItemIds = AutoBuyWantedItemIds or Config.AutoBuyWantedItemIds
     Config.AutoSeasonBuyWantedItemIds = AutoSeasonBuyWantedItemIds or Config.AutoSeasonBuyWantedItemIds
     Config.AutoForgeRecipeId = AutoForge.RecipeId or Config.AutoForgeRecipeId
@@ -247,6 +274,7 @@ AutoStartDifficulty = Config.AutoStartDifficulty
 AutoForge.RecipeId = Config.AutoForgeRecipeId
 AutoForge.Composition = Config.AutoForgeOreComposition
 AutoForge.RequestedCrafts = Config.AutoForgeRequestedCrafts
+AutoPotion.Selected = Config.AutoPotionSelected
 
 -- KONTROL SCRIPT MASTER
 _G.AutoFarm = true
@@ -264,7 +292,13 @@ _G.AutoBuy = Config.AutoBuy
 _G.AutoSell = Config.AutoSell
 _G.AutoSeasonBuy = Config.AutoSeasonBuy
 _G.AutoForge = Config.AutoForge
+_G.AutoPotion = Config.AutoPotion
 _G.AutoRejoin = Config.AutoRejoin
+
+if _G.BugonAutoPotionRuntime and _G.BugonAutoPotionRuntime.Shutdown then
+    pcall(_G.BugonAutoPotionRuntime.Shutdown)
+end
+_G.BugonAutoPotionRuntime = AutoPotion
 
 local SudutPutar = 0
 local Target = nil
@@ -1337,6 +1371,434 @@ local function GetItemDisplayName(ItemId)
     return string.gsub(BaseId, "_", " ")
 end
 
+function AutoPotion.ShouldCatalog(Definition)
+    return type(Definition) == "table" and Definition.PotionType == "Buff"
+end
+
+function AutoPotion.GetBuffFields(Definition)
+    local BuffIds = {}
+    local Durations = {}
+    local Index = 1
+    while true do
+        local BuffIdKey = "BuffId" .. Index
+        local DurationKey = "Duration" .. Index
+        local BuffId = Definition[BuffIdKey]
+        local Duration = Definition[DurationKey]
+        if BuffId == nil or Duration == nil then
+            break
+        end
+        if BuffId ~= "" and Duration ~= "" then
+            table.insert(BuffIds, tostring(BuffId))
+            table.insert(Durations, tonumber(Duration) or 0)
+        end
+        Index = Index + 1
+    end
+    return BuffIds, Durations
+end
+
+function AutoPotion.AreBuffsActive(BuffIds, GetValue)
+    if type(BuffIds) ~= "table" or #BuffIds <= 0 then
+        return false
+    end
+    for _, BuffId in ipairs(BuffIds) do
+        if (tonumber(GetValue(BuffId)) or 0) <= 0 then
+            return false
+        end
+    end
+    return true
+end
+
+function AutoPotion.ShouldQueueState(Selected, Owned, Active, Queued, Pending)
+    return Selected == true and (tonumber(Owned) or 0) > 0 and not Active and not Queued and not Pending
+end
+
+function AutoPotion.RunSelfCheck()
+    local Cases = {
+        {Name = "one selected potion", Actual = AutoPotion.ShouldQueueState(true, 1, false, false, false), Expected = true},
+        {Name = "multiple independent potions", Actual = AutoPotion.ShouldQueueState(true, 2, true, false, false), Expected = false},
+        {Name = "multi-buff potion", Actual = AutoPotion.AreBuffsActive({"A", "B"}, function(Id) return Id == "A" and 1 or 0 end), Expected = false},
+        {Name = "out-of-stock potion", Actual = AutoPotion.ShouldQueueState(true, 0, false, false, false), Expected = false},
+        {Name = "missed-signal recovery", Actual = AutoPotion.ShouldQueueState(true, 1, false, false, false), Expected = true},
+        {Name = "Bond exclusion", Actual = AutoPotion.ShouldCatalog({PotionType = "BondIntimacy"}), Expected = false}
+    }
+    for _, Case in ipairs(Cases) do
+        assert(Case.Actual == Case.Expected, "Auto Potion self-check failed: " .. Case.Name)
+    end
+    return true
+end
+
+function AutoPotion.RefreshState()
+    if AutoPotion.Refresh then
+        pcall(AutoPotion.Refresh)
+    end
+end
+
+function AutoPotion.SetStatus(Status)
+    if AutoPotion.Status == Status then
+        return
+    end
+    AutoPotion.Status = Status
+    print("[AutoPotion] " .. tostring(Status))
+    AutoPotion.RefreshState()
+end
+
+function AutoPotion.BuildCatalog(ForceRefresh)
+    local Framework = GetFrameworkModule()
+    local PotionUtil = Framework.Modules.PotionUtil
+    if not ForceRefresh and #AutoPotion.Order > 0 then
+        for _, PotionId in ipairs(AutoPotion.Order) do
+            local Entry = AutoPotion.Catalog[PotionId]
+            Entry.Owned = tonumber(PotionUtil:GetOwnedAmount(LocalPlayer, PotionId)) or 0
+        end
+        return AutoPotion.Catalog, AutoPotion.Order
+    end
+
+    local ResPotion = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("ResPotion"))
+    local Catalog = {}
+    local Order = {}
+    local ByBuffId = {}
+    local Seen = {}
+    local function AddPotion(PotionId)
+        if type(PotionId) ~= "string" or Seen[PotionId] then
+            return
+        end
+        Seen[PotionId] = true
+        local Definition = ResPotion[PotionId]
+        if not AutoPotion.ShouldCatalog(Definition) then
+            return
+        end
+        local BuffIds, Durations = AutoPotion.GetBuffFields(Definition)
+        local Entry = {
+            PotionId = PotionId,
+            DisplayName = GetItemDisplayName(PotionId),
+            Icon = Definition.Icon,
+            BuffIds = BuffIds,
+            Durations = Durations,
+            Definition = Definition,
+            Owned = tonumber(PotionUtil:GetOwnedAmount(LocalPlayer, PotionId)) or 0
+        }
+        Catalog[PotionId] = Entry
+        table.insert(Order, PotionId)
+        for _, BuffId in ipairs(BuffIds) do
+            ByBuffId[BuffId] = ByBuffId[BuffId] or {}
+            table.insert(ByBuffId[BuffId], PotionId)
+        end
+    end
+
+    for _, PotionId in ipairs(ResPotion.__index or {}) do
+        AddPotion(PotionId)
+    end
+    for PotionId in pairs(ResPotion) do
+        AddPotion(PotionId)
+    end
+    table.sort(Order, function(LeftId, RightId)
+        local Left = Catalog[LeftId]
+        local Right = Catalog[RightId]
+        local LeftName = string.lower(Left and Left.DisplayName or LeftId)
+        local RightName = string.lower(Right and Right.DisplayName or RightId)
+        if LeftName == RightName then
+            return LeftId < RightId
+        end
+        return LeftName < RightName
+    end)
+
+    local SelectionChanged = false
+    for PotionId in pairs(AutoPotion.Selected) do
+        if not Catalog[PotionId] then
+            AutoPotion.Selected[PotionId] = nil
+            SelectionChanged = true
+        end
+    end
+    AutoPotion.Catalog = Catalog
+    AutoPotion.Order = Order
+    AutoPotion.ByBuffId = ByBuffId
+    if SelectionChanged then
+        SaveConfig()
+    end
+    return Catalog, Order
+end
+
+function AutoPotion.GetPlayerAttrEntry()
+    return LocalPlayer:FindFirstChild("PlayerAttrEntry")
+end
+
+function AutoPotion.IsSettlementVisible()
+    local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    local ResultGui = PlayerGui and PlayerGui:FindFirstChild("ResultGui")
+    local ScreenSettlement = ResultGui and ResultGui:FindFirstChild("ScreenSettlement")
+    local Current = ScreenSettlement
+    if not Current then
+        return false
+    end
+    while Current and Current ~= game do
+        if Current:IsA("GuiObject") and not Current.Visible then
+            return false
+        end
+        if Current:IsA("LayerCollector") and not Current.Enabled then
+            return false
+        end
+        Current = Current.Parent
+    end
+    return true
+end
+
+function AutoPotion.IsDungeonEligible()
+    if IsInLobby and IsInLobby() then
+        return false, "BLOCKED - LOBBY"
+    end
+    if workspace:GetAttribute("LoadingEnd") ~= true then
+        return false, "BLOCKED - LOADING"
+    end
+    if AutoPotion.IsSettlementVisible() then
+        return false, "BLOCKED - SETTLEMENT"
+    end
+    if RejoinWatchdog.BlocksAutomation() then
+        return false, "BLOCKED - REJOIN"
+    end
+    if not LocalPlayer.Character or not AutoPotion.GetPlayerAttrEntry() then
+        return false, "BLOCKED - LOADING"
+    end
+    return true
+end
+
+function AutoPotion.IsEntryActive(Entry)
+    local PlayerAttrEntry = AutoPotion.GetPlayerAttrEntry()
+    if not Entry or not PlayerAttrEntry then
+        return false
+    end
+    return AutoPotion.AreBuffsActive(Entry.BuffIds, function(BuffId)
+        return PlayerAttrEntry:GetAttribute(BuffId)
+    end)
+end
+
+function AutoPotion.GetEntryState(Entry)
+    if not Entry or #Entry.BuffIds <= 0 or not AutoPotion.GetPlayerAttrEntry() then
+        return "Unavailable"
+    end
+    if AutoPotion.Pending[Entry.PotionId] then
+        return "Pending"
+    end
+    if AutoPotion.IsEntryActive(Entry) then
+        return "Active"
+    end
+    if (tonumber(Entry.Owned) or 0) <= 0 then
+        return "Out of Stock"
+    end
+    return "Inactive"
+end
+
+function AutoPotion.DisconnectSignals()
+    for _, Connection in pairs(AutoPotion.Connections) do
+        pcall(function() Connection:Disconnect() end)
+    end
+    for _, Connection in ipairs(AutoPotion.LifecycleConnections) do
+        pcall(function() Connection:Disconnect() end)
+    end
+    table.clear(AutoPotion.Connections)
+    table.clear(AutoPotion.LifecycleConnections)
+end
+
+function AutoPotion.Enqueue(PotionId)
+    if AutoPotion.Queued[PotionId] or AutoPotion.Pending[PotionId] then
+        return false
+    end
+    AutoPotion.Queued[PotionId] = true
+    table.insert(AutoPotion.Queue, PotionId)
+    if not AutoPotion.WorkerRunning then
+        AutoPotion.WorkerRunning = true
+        task.spawn(AutoPotion.RunQueue)
+    end
+    AutoPotion.RefreshState()
+    return true
+end
+
+function AutoPotion.EvaluatePotion(PotionId, AllowRetry)
+    local Entry = AutoPotion.Catalog[PotionId]
+    if not Entry or not AutoPotion.Selected[PotionId] then
+        return false
+    end
+    if AutoPotion.RetryOnScan[PotionId] then
+        if not AllowRetry then
+            return false
+        end
+        AutoPotion.RetryOnScan[PotionId] = nil
+    end
+    local PotionUtil = GetFrameworkModule().Modules.PotionUtil
+    Entry.Owned = tonumber(PotionUtil:GetOwnedAmount(LocalPlayer, PotionId)) or 0
+    local Active = AutoPotion.IsEntryActive(Entry)
+    if AutoPotion.ShouldQueueState(true, Entry.Owned, Active, AutoPotion.Queued[PotionId],
+        AutoPotion.Pending[PotionId]) then
+        return AutoPotion.Enqueue(PotionId)
+    end
+    return false
+end
+
+function AutoPotion.Scan(ForceRefresh, AllowRetry)
+    if not _G.AutoPotion or not AutoPotion.Token.Alive then
+        return
+    end
+    AutoPotion.BuildCatalog(ForceRefresh == true)
+    local Eligible, Reason = AutoPotion.IsDungeonEligible()
+    if not Eligible then
+        AutoPotion.SetStatus(Reason)
+        return
+    end
+    local QueuedAny = false
+    for _, PotionId in ipairs(AutoPotion.Order) do
+        if AutoPotion.Selected[PotionId] and AutoPotion.EvaluatePotion(PotionId, AllowRetry) then
+            QueuedAny = true
+        end
+    end
+    if not QueuedAny and not AutoPotion.WorkerRunning then
+        AutoPotion.SetStatus("AUTO POTION READY")
+    end
+    AutoPotion.RefreshState()
+end
+
+function AutoPotion.UseOne(PotionId)
+    local Entry = AutoPotion.Catalog[PotionId]
+    local Eligible = AutoPotion.IsDungeonEligible()
+    if not _G.AutoPotion or not AutoPotion.Selected[PotionId] or not Eligible or not Entry or
+        not AutoPotion.ShouldCatalog(Entry.Definition) then
+        return
+    end
+    local PotionUtil = GetFrameworkModule().Modules.PotionUtil
+    local BeforeOwned = tonumber(PotionUtil:GetOwnedAmount(LocalPlayer, PotionId)) or 0
+    Entry.Owned = BeforeOwned
+    if BeforeOwned <= 0 or AutoPotion.IsEntryActive(Entry) then
+        return
+    end
+
+    AutoPotion.Pending[PotionId] = true
+    AutoPotion.SetStatus("PENDING " .. PotionId)
+    local Success, ErrorMessage = pcall(function()
+        PotionUtil:UsePotion(LocalPlayer, PotionId, 1, nil)
+    end)
+    AutoPotion.LastRequestAt = os.clock()
+    if not Success then
+        warn("[AutoPotion] USE ERROR " .. PotionId .. ": " .. tostring(ErrorMessage))
+    else
+        local Deadline = os.clock() + AutoPotion.ConfirmTimeout
+        repeat
+            Entry.Owned = tonumber(PotionUtil:GetOwnedAmount(LocalPlayer, PotionId)) or 0
+            if AutoPotion.IsEntryActive(Entry) or Entry.Owned < BeforeOwned then
+                print("[AutoPotion] USED " .. PotionId .. " x1")
+                AutoPotion.RetryOnScan[PotionId] = nil
+                AutoPotion.SetStatus("ACTIVE " .. PotionId)
+                AutoPotion.Pending[PotionId] = nil
+                AutoPotion.RefreshState()
+                return
+            end
+            task.wait(0.1)
+        until os.clock() >= Deadline
+        warn("[AutoPotion] USE TIMEOUT " .. PotionId)
+        AutoPotion.RetryOnScan[PotionId] = true
+        AutoPotion.SetStatus("USE TIMEOUT " .. PotionId)
+    end
+    AutoPotion.Pending[PotionId] = nil
+    AutoPotion.RefreshState()
+end
+
+function AutoPotion.RunQueue()
+    while AutoPotion.Token.Alive and _G.AutoPotion and #AutoPotion.Queue > 0 do
+        local PotionId = table.remove(AutoPotion.Queue, 1)
+        AutoPotion.Queued[PotionId] = nil
+        local WaitTime = AutoPotion.QueueSpacing - (os.clock() - AutoPotion.LastRequestAt)
+        if WaitTime > 0 then
+            task.wait(WaitTime)
+        end
+        AutoPotion.UseOne(PotionId)
+    end
+    AutoPotion.WorkerRunning = false
+    AutoPotion.RefreshState()
+end
+
+function AutoPotion.RebuildSignals()
+    AutoPotion.DisconnectSignals()
+    if not _G.AutoPotion or not AutoPotion.Token.Alive then
+        return
+    end
+    AutoPotion.BuildCatalog(false)
+    local PlayerAttrEntry = AutoPotion.GetPlayerAttrEntry()
+    if PlayerAttrEntry then
+        for PotionId in pairs(AutoPotion.Selected) do
+            local Entry = AutoPotion.Catalog[PotionId]
+            if Entry then
+                for _, BuffId in ipairs(Entry.BuffIds) do
+                    if not AutoPotion.Connections[BuffId] then
+                        local ObservedBuffId = BuffId
+                        AutoPotion.Connections[ObservedBuffId] = PlayerAttrEntry:GetAttributeChangedSignal(BuffId):Connect(function()
+                            for _, RelatedPotionId in ipairs(AutoPotion.ByBuffId[ObservedBuffId] or {}) do
+                                AutoPotion.EvaluatePotion(RelatedPotionId)
+                            end
+                            AutoPotion.RefreshState()
+                        end)
+                    end
+                end
+            end
+        end
+    end
+
+    local function RefreshContext(Child)
+        local Name = Child and Child.Name or ""
+        if Name == "MatchRoom" or Name == "WorldEnemys" or Name == "DragonEgg" or Name == "PlayerAttrEntry" then
+            task.defer(function()
+                AutoPotion.RebuildSignals()
+                AutoPotion.Scan(false)
+            end)
+        end
+    end
+    table.insert(AutoPotion.LifecycleConnections, workspace.ChildAdded:Connect(RefreshContext))
+    table.insert(AutoPotion.LifecycleConnections, workspace.ChildRemoved:Connect(RefreshContext))
+    table.insert(AutoPotion.LifecycleConnections, workspace:GetAttributeChangedSignal("LoadingEnd"):Connect(function()
+        task.defer(function() AutoPotion.Scan(false) end)
+    end))
+    table.insert(AutoPotion.LifecycleConnections, LocalPlayer.ChildAdded:Connect(RefreshContext))
+    table.insert(AutoPotion.LifecycleConnections, LocalPlayer.CharacterAdded:Connect(function()
+        task.defer(function() AutoPotion.Scan(false) end)
+    end))
+end
+
+function AutoPotion.StartScanner()
+    AutoPotion.ScanGeneration = AutoPotion.ScanGeneration + 1
+    local Generation = AutoPotion.ScanGeneration
+    task.spawn(function()
+        while AutoPotion.Token.Alive and _G.AutoPotion and Generation == AutoPotion.ScanGeneration do
+            task.wait(AutoPotion.ScanInterval)
+            if AutoPotion.Token.Alive and _G.AutoPotion and Generation == AutoPotion.ScanGeneration then
+                pcall(AutoPotion.Scan, false, true)
+            end
+        end
+    end)
+end
+
+function AutoPotion.SetEnabled(Enabled)
+    _G.AutoPotion = Enabled == true
+    AutoPotion.ScanGeneration = AutoPotion.ScanGeneration + 1
+    if not _G.AutoPotion then
+        AutoPotion.DisconnectSignals()
+        table.clear(AutoPotion.Queue)
+        table.clear(AutoPotion.Queued)
+        AutoPotion.SetStatus("OFF")
+        return
+    end
+    AutoPotion.BuildCatalog(true)
+    AutoPotion.RebuildSignals()
+    AutoPotion.SetStatus("AUTO POTION READY")
+    AutoPotion.Scan(false)
+    AutoPotion.StartScanner()
+end
+
+function AutoPotion.Shutdown()
+    AutoPotion.Token.Alive = false
+    AutoPotion.ScanGeneration = AutoPotion.ScanGeneration + 1
+    AutoPotion.DisconnectSignals()
+    table.clear(AutoPotion.Queue)
+    table.clear(AutoPotion.Queued)
+end
+
+AutoPotion.RunSelfCheck()
+
 function AutoForge.GetInventory()
     local Framework = GetFrameworkModule()
     local DataUtil = Framework.Modules.DataUtil
@@ -2055,6 +2517,8 @@ IsInLobby = function()
     return workspace:FindFirstChild("MatchRoom") ~= nil and workspace:FindFirstChild("WorldEnemys") == nil and
                workspace:FindFirstChild("DragonEgg") == nil
 end
+
+AutoPotion.SetEnabled(_G.AutoPotion)
 
 RejoinWatchdog.BindGuiSignals()
 
@@ -4498,12 +4962,188 @@ DifficultyDropdown.Activated:Connect(function()
     DifficultyOptions.Visible = not DifficultyOptions.Visible
 end)
 
-local PartyStatus = CreateText(DungeonPage, "Party Size   SOLO 1/1", 12)
-PartyStatus.Position = UDim2.fromOffset(10, 210)
-PartyStatus.Size = UDim2.new(1, -20, 0, 30)
-local TriggerStatus = CreateText(DungeonPage, "Trigger      AFTER AUTO-SELL", 12)
-TriggerStatus.Position = UDim2.fromOffset(10, 246)
-TriggerStatus.Size = UDim2.new(1, -20, 0, 30)
+local PartyStatus = CreateText(DungeonPage, "SOLO 1/1 · AFTER AUTO-SELL", 11, Theme.Muted)
+PartyStatus.Position = UDim2.fromOffset(8, 170)
+PartyStatus.Size = UDim2.new(1, -16, 0, 20)
+
+local AutoPotionToggle = CreateButton(DungeonPage, "")
+AutoPotionToggle.Name = "AutoPotionToggle"
+AutoPotionToggle.Position = UDim2.fromOffset(0, 196)
+AutoPotionToggle.Size = UDim2.new(1, 0, 0, 32)
+
+local AutoPotionOpen = CreateButton(DungeonPage, "POTIONS")
+AutoPotionOpen.Name = "AutoPotionOpen"
+AutoPotionOpen.Position = UDim2.fromOffset(0, 234)
+AutoPotionOpen.Size = UDim2.new(1, 0, 0, 32)
+
+local AutoPotionOverlay = Instance.new("Frame")
+AutoPotionOverlay.Name = "AutoPotionOverlay"
+AutoPotionOverlay.Size = UDim2.fromScale(1, 1)
+AutoPotionOverlay.BackgroundColor3 = Theme.Panel
+AutoPotionOverlay.BorderSizePixel = 0
+AutoPotionOverlay.Visible = false
+AutoPotionOverlay.ZIndex = 40
+AutoPotionOverlay.Parent = DungeonPage
+AddCorner(AutoPotionOverlay, 7)
+AddStroke(AutoPotionOverlay, Theme.Accent)
+
+local AutoPotionTitle = CreateText(AutoPotionOverlay, "AUTO POTION", 13)
+AutoPotionTitle.Position = UDim2.fromOffset(8, 0)
+AutoPotionTitle.Size = UDim2.new(1, -148, 0, 30)
+AutoPotionTitle.Font = Enum.Font.GothamBold
+AutoPotionTitle.ZIndex = 41
+
+local AutoPotionRefresh = CreateButton(AutoPotionOverlay, "REFRESH")
+AutoPotionRefresh.AnchorPoint = Vector2.new(1, 0)
+AutoPotionRefresh.Position = UDim2.new(1, -66, 0, 0)
+AutoPotionRefresh.Size = UDim2.fromOffset(64, 30)
+AutoPotionRefresh.ZIndex = 41
+
+local AutoPotionClose = CreateButton(AutoPotionOverlay, "CLOSE")
+AutoPotionClose.AnchorPoint = Vector2.new(1, 0)
+AutoPotionClose.Position = UDim2.new(1, 0, 0, 0)
+AutoPotionClose.Size = UDim2.fromOffset(60, 30)
+AutoPotionClose.ZIndex = 41
+
+local AutoPotionSearch = Instance.new("TextBox")
+AutoPotionSearch.Name = "AutoPotionSearch"
+AutoPotionSearch.Position = UDim2.fromOffset(0, 36)
+AutoPotionSearch.Size = UDim2.new(1, 0, 0, 30)
+AutoPotionSearch.BackgroundColor3 = Theme.Surface
+AutoPotionSearch.BorderSizePixel = 0
+AutoPotionSearch.ClearTextOnFocus = false
+AutoPotionSearch.Font = Enum.Font.Gotham
+AutoPotionSearch.PlaceholderText = "Search potion name or ID..."
+AutoPotionSearch.PlaceholderColor3 = Theme.Muted
+AutoPotionSearch.Text = ""
+AutoPotionSearch.TextColor3 = Theme.Text
+AutoPotionSearch.TextSize = 12
+AutoPotionSearch.TextXAlignment = Enum.TextXAlignment.Left
+AutoPotionSearch.ZIndex = 41
+AutoPotionSearch.Parent = AutoPotionOverlay
+AddCorner(AutoPotionSearch, 6)
+AddStroke(AutoPotionSearch)
+local AutoPotionSearchPadding = Instance.new("UIPadding")
+AutoPotionSearchPadding.PaddingLeft = UDim.new(0, 10)
+AutoPotionSearchPadding.Parent = AutoPotionSearch
+
+local AutoPotionList = Instance.new("ScrollingFrame")
+AutoPotionList.Name = "AutoPotionList"
+AutoPotionList.Position = UDim2.fromOffset(0, 72)
+AutoPotionList.Size = UDim2.new(1, 0, 1, -72)
+AutoPotionList.BackgroundColor3 = Theme.Background
+AutoPotionList.BorderSizePixel = 0
+AutoPotionList.ScrollBarThickness = 3
+AutoPotionList.ScrollBarImageColor3 = Theme.Accent
+AutoPotionList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+AutoPotionList.CanvasSize = UDim2.fromOffset(0, 0)
+AutoPotionList.ZIndex = 41
+AutoPotionList.Parent = AutoPotionOverlay
+AddCorner(AutoPotionList, 6)
+AddStroke(AutoPotionList)
+local AutoPotionListPadding = Instance.new("UIPadding")
+AutoPotionListPadding.PaddingTop = UDim.new(0, 5)
+AutoPotionListPadding.PaddingBottom = UDim.new(0, 5)
+AutoPotionListPadding.PaddingLeft = UDim.new(0, 5)
+AutoPotionListPadding.PaddingRight = UDim.new(0, 5)
+AutoPotionListPadding.Parent = AutoPotionList
+local AutoPotionListLayout = Instance.new("UIListLayout")
+AutoPotionListLayout.Padding = UDim.new(0, 5)
+AutoPotionListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+AutoPotionListLayout.Parent = AutoPotionList
+
+local function BuildAutoPotionRows()
+    for _, Child in ipairs(AutoPotionList:GetChildren()) do
+        if Child:IsA("GuiButton") then
+            Child:Destroy()
+        end
+    end
+    AutoPotion.BuildCatalog(false)
+    local Query = string.lower(AutoPotionSearch.Text or "")
+    for LayoutOrder, PotionId in ipairs(AutoPotion.Order) do
+        local Entry = AutoPotion.Catalog[PotionId]
+        local SearchText = string.lower(Entry.DisplayName .. " " .. PotionId)
+        if Query == "" or string.find(SearchText, Query, 1, true) then
+            local Row = CreateButton(AutoPotionList, "")
+            Row.Name = "Potion_" .. PotionId
+            Row.Size = UDim2.new(1, -2, 0, 48)
+            Row.LayoutOrder = LayoutOrder
+            Row.ZIndex = 42
+
+            local Title = CreateText(Row, Entry.DisplayName, 12)
+            Title.Position = UDim2.fromOffset(10, 3)
+            Title.Size = UDim2.new(1, -48, 0, 22)
+            Title.Font = Enum.Font.GothamMedium
+            Title.ZIndex = 43
+
+            local State = AutoPotion.GetEntryState(Entry)
+            local Detail = CreateText(Row, PotionId .. " · " .. State .. " · owned " .. tostring(Entry.Owned), 10,
+                Theme.Muted)
+            Detail.Position = UDim2.fromOffset(10, 25)
+            Detail.Size = UDim2.new(1, -48, 0, 18)
+            Detail.ZIndex = 43
+
+            local Check = CreateText(Row, AutoPotion.Selected[PotionId] and "✓" or "", 14)
+            Check.AnchorPoint = Vector2.new(1, 0.5)
+            Check.Position = UDim2.new(1, -8, 0.5, 0)
+            Check.Size = UDim2.fromOffset(26, 26)
+            Check.BackgroundColor3 = AutoPotion.Selected[PotionId] and Theme.Enabled or Theme.SurfaceHover
+            Check.BackgroundTransparency = 0
+            Check.TextXAlignment = Enum.TextXAlignment.Center
+            Check.ZIndex = 43
+            AddCorner(Check, 5)
+
+            Row.Activated:Connect(function()
+                if AutoPotion.Selected[PotionId] then
+                    AutoPotion.Selected[PotionId] = nil
+                else
+                    AutoPotion.Selected[PotionId] = true
+                end
+                SaveConfig()
+                AutoPotion.RebuildSignals()
+                AutoPotion.Scan(false)
+                BuildAutoPotionRows()
+            end)
+        end
+    end
+end
+
+local function RefreshAutoPotionUI()
+    local SelectedCount = 0
+    for PotionId in pairs(AutoPotion.Selected) do
+        if AutoPotion.Catalog[PotionId] then
+            SelectedCount = SelectedCount + 1
+        end
+    end
+    AutoPotionToggle.Text = _G.AutoPotion and "AUTO POTION: ON" or "AUTO POTION: OFF"
+    AutoPotionToggle.BackgroundColor3 = _G.AutoPotion and Theme.Enabled or Theme.Disabled
+    AutoPotionOpen.Text = "POTIONS " .. tostring(SelectedCount) .. " · " .. tostring(AutoPotion.Status)
+    if AutoPotionOverlay.Visible then
+        BuildAutoPotionRows()
+    end
+end
+
+AutoPotion.Refresh = RefreshAutoPotionUI
+AutoPotionToggle.Activated:Connect(function()
+    AutoPotion.SetEnabled(not _G.AutoPotion)
+    SaveConfig()
+    RefreshAutoPotionUI()
+end)
+AutoPotionOpen.Activated:Connect(function()
+    DungeonOptions.Visible = false
+    DifficultyOptions.Visible = false
+    AutoPotionOverlay.Visible = true
+    BuildAutoPotionRows()
+end)
+AutoPotionClose.Activated:Connect(function() AutoPotionOverlay.Visible = false end)
+AutoPotionRefresh.Activated:Connect(function()
+    AutoPotion.BuildCatalog(true)
+    AutoPotion.RebuildSignals()
+    AutoPotion.Scan(false)
+    RefreshAutoPotionUI()
+end)
+AutoPotionSearch:GetPropertyChangedSignal("Text"):Connect(BuildAutoPotionRows)
+RefreshAutoPotionUI()
 
 local GroceryPage = CreateCatalogPage("GroceryPage")
 local SeasonPage = CreateCatalogPage("SeasonPage")
@@ -4586,6 +5226,7 @@ end
 local function SetUtilityPage(Name)
     DungeonOptions.Visible = false
     DifficultyOptions.Visible = false
+    AutoPotionOverlay.Visible = false
     AutoForgePage.Close()
     DungeonPage.Visible = Name == "Dungeon"
     GroceryPage.Page.Visible = Name == "Grocery"

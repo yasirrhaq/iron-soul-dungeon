@@ -113,6 +113,16 @@ Brief behavior notes for `holygrail/script-v6-full-run-dg.lua`.
 - Each completed craft opens the native result screen and pauses the batch until the player selects Accept or Delete; results are never acknowledged before they are shown.
 - Turning Auto Forge off during a batch finishes current craft, then stops before next craft. Auto-sell and rejoin recovery cannot overlap an active forge batch.
 
+## Auto Potion
+
+- Utility → Dungeon contains persisted `AUTO POTION` controls and a searchable list built from every known `ResPotion` entry whose `PotionType` is `Buff`.
+- Gold Potion and other normal buff potions appear automatically. Friendship/Bond potions stay excluded because they require a selected partner payload.
+- Each checked potion type is independent and always consumes exactly one item through native `PotionUtil:UsePotion(LocalPlayer, PotionId, 1, nil)`.
+- Selected potions are used only inside an active dungeon when at least one configured `BuffIdN` attribute is inactive. Lobby, loading, settlement, and rejoin recovery block requests.
+- Buff attribute change signals drive normal refresh. One 15-second fallback scan recovers missed replication; disabled Auto Potion disconnects signals and performs no scans.
+- Multiple expired buffs enter one deduplicated queue with 0.65-second request spacing. Failed confirmation waits for the next fallback scan before retrying.
+- Potion rows show translated name, owned count, and `Active`, `Inactive`, `Pending`, `Out of Stock`, or `Unavailable`; no guessed countdown is displayed.
+
 ## Safety And Utility
 
 - Anti-AFK captures controller and right-clicks on idle.
