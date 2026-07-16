@@ -3761,7 +3761,7 @@ UtilityPages.Size = UDim2.new(1, 0, 1, -124)
 UtilityPages.BackgroundTransparency = 1
 UtilityPages.Parent = UtilityTab
 
-local function CreateSelectorDropdown(Parent, Name, PositionY)
+local function CreateSelectorDropdown(Parent, Name, PositionY, OpenUpwards)
     local Button = CreateButton(Parent, "")
     Button.Name = Name .. "Dropdown"
     Button.Position = UDim2.fromOffset(0, PositionY)
@@ -3770,7 +3770,8 @@ local function CreateSelectorDropdown(Parent, Name, PositionY)
 
     local Options = Instance.new("ScrollingFrame")
     Options.Name = Name .. "Options"
-    Options.Position = UDim2.fromOffset(0, PositionY + 38)
+    Options.AnchorPoint = OpenUpwards and Vector2.new(0, 1) or Vector2.new(0, 0)
+    Options.Position = UDim2.fromOffset(0, OpenUpwards and (PositionY - 4) or (PositionY + 38))
     Options.Size = UDim2.new(1, 0, 0, 0)
     Options.BackgroundColor3 = Theme.Surface
     Options.BorderSizePixel = 0
@@ -3875,7 +3876,7 @@ local DungeonDropdown, DungeonOptions = CreateSelectorDropdown(DungeonPage, "Dun
 local DifficultyLabel = CreateText(DungeonPage, "Difficulty", 11, Theme.Muted)
 DifficultyLabel.Position = UDim2.fromOffset(0, 104)
 DifficultyLabel.Size = UDim2.new(1, 0, 0, 20)
-local DifficultyDropdown, DifficultyOptions = CreateSelectorDropdown(DungeonPage, "Difficulty", 126)
+local DifficultyDropdown, DifficultyOptions = CreateSelectorDropdown(DungeonPage, "Difficulty", 126, true)
 DungeonDropdown.Activated:Connect(function()
     DifficultyOptions.Visible = false
     DungeonOptions.Visible = not DungeonOptions.Visible
