@@ -4,7 +4,7 @@
 
 Extend V6 Auto Forge with editable target profiles. Profiles describe acceptable forge attribute-slot combinations. Normal Auto Forge automatically accepts every result. Target mode evaluates each result before acknowledgement, accepts and stops on a match, and handles non-matches according to an `Auto Delete Non-Match` toggle.
 
-Only `holygrail/script-v6-full-run-dg.lua` changes during implementation. V5 remains unchanged.
+Implementation changes `holygrail/script-v6-full-run-dg.lua`, target-stat checks, `README.md`, and `docs/features.md`. V5 remains unchanged.
 
 ## Goals
 
@@ -251,11 +251,24 @@ The runner also stops when:
 
 ## User Interface
 
-Extend the existing Utility `FORGE` page without adding a new main tab.
+Use three equal-width main tabs:
+
+```text
+FARM | UTILITY | FORGE
+```
+
+Remove `FORGE` from Utility navigation. Utility retains four equal-width sub-tabs: `DUNGEON`, `GROCERY`, `SEASON`, and `AUTO SELL`.
+
+The main `FORGE` tab contains two subviews:
+
+- `CRAFT`: existing recipe, ore composition, attempt count, Start/Stop, and runtime status controls.
+- `TARGETS`: target-mode toggles, profile list, and profile editor entry points.
+
+Switching main tabs or Forge subviews closes any open recipe, stat, slot-mode, rule-type, or group dropdown. Target-found modal remains visible until explicitly closed.
 
 ### Mode Controls
 
-- `AUTO FORGE`: existing master toggle.
+- `AUTO FORGE`: existing master toggle on the `CRAFT` subview.
 - `TARGET MODE`: enables profile evaluation.
 - `AUTO DELETE NON-MATCH`: active only while target mode is enabled.
 
