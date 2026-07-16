@@ -41,6 +41,36 @@ local DefaultOreSellModes = {
     Apocalypse = "KEEP",
     DarkBlossom = "KEEP"
 }
+local AutoForge = {
+    Recipes = {
+        WeaponSword = {Label = "Sword", Category = "Weapon", OreCount = 3, Chance = 100},
+        WeaponStaff = {Label = "Staff", Category = "Weapon", OreCount = 10, Chance = 80},
+        WeaponAxeHammer = {Label = "Axe/Hammer", Category = "Weapon", OreCount = 16, Chance = 100},
+        WeaponFist = {Label = "Fist", Category = "Weapon", OreCount = 18, Chance = 5},
+        WeaponFistCommon = {Label = "Fist + Common Relic", Category = "Weapon", OreCount = 18, Chance = 20, RelicId = "FistRelic_1"},
+        WeaponFistLuxury = {Label = "Fist + Luxury Relic", Category = "Weapon", OreCount = 18, Chance = 58, RelicId = "FistRelic_2"},
+        ArmorLightHelmet = {Label = "Light Helmet", Category = "Armor", OreCount = 3, Chance = 100},
+        ArmorLightArmor = {Label = "Light Armor", Category = "Armor", OreCount = 10, Chance = 80},
+        ArmorHeavyHelmet = {Label = "Heavy Helmet", Category = "Armor", OreCount = 15, Chance = 80},
+        ArmorHeavyArmor = {Label = "Heavy Armor", Category = "Armor", OreCount = 22, Chance = 100}
+    },
+    RecipeOrder = {
+        "WeaponSword", "WeaponStaff", "WeaponAxeHammer", "WeaponFist", "WeaponFistCommon",
+        "WeaponFistLuxury", "ArmorLightHelmet", "ArmorLightArmor", "ArmorHeavyHelmet", "ArmorHeavyArmor"
+    },
+    RecipeId = nil,
+    Composition = nil,
+    RequestedCrafts = nil,
+    KeyString = nil,
+    State = {
+        Running = false,
+        Status = "IDLE",
+        Completed = 0,
+        Planned = 0,
+        Refresh = nil,
+        Token = {Alive = true}
+    }
+}
 local AutoBuyWantedItemIds = nil
 local AutoSeasonBuyWantedItemIds = nil
 local SellMaxRarity = nil
@@ -54,8 +84,12 @@ local Config = {
     AutoBuy = false,
     AutoSell = false,
     AutoSeasonBuy = false,
+    AutoForge = false,
     AutoBuyWantedItemIds = CopyMap(DefaultAutoBuyWantedItemIds),
     AutoSeasonBuyWantedItemIds = CopyMap(DefaultAutoSeasonBuyWantedItemIds),
+    AutoForgeRecipeId = "WeaponSword",
+    AutoForgeOreComposition = {},
+    AutoForgeRequestedCrafts = 1,
     SellMaxRarity = 5,
     AutoStartWorldId = "World3",
     AutoStartDifficulty = 10,
@@ -107,6 +141,20 @@ local function NormalizeOreSellModes(Value)
     return Result
 end
 
+function AutoForge.NormalizeComposition(Value)
+    local Result = {}
+    if type(Value) ~= "table" then
+        return Result
+    end
+    for ItemId, Count in pairs(Value) do
+        Count = math.floor(tonumber(Count) or 0)
+        if type(ItemId) == "string" and Count > 0 then
+            Result[ItemId] = Count
+        end
+    end
+    return Result
+end
+
 local function LoadConfig()
     if readfile and isfile and isfile(FileNama) then
         local BerhasilBaca, IsiFile = pcall(function()
@@ -133,9 +181,13 @@ local function LoadConfig()
     Config.AutoBuy = Config.AutoBuy == true
     Config.AutoSell = Config.AutoSell == true
     Config.AutoSeasonBuy = Config.AutoSeasonBuy == true
+    Config.AutoForge = Config.AutoForge == true
     Config.AutoBuyWantedItemIds = NormalizeEnabledMap(Config.AutoBuyWantedItemIds, DefaultAutoBuyWantedItemIds)
     Config.AutoSeasonBuyWantedItemIds = NormalizeEnabledMap(Config.AutoSeasonBuyWantedItemIds,
         DefaultAutoSeasonBuyWantedItemIds)
+    Config.AutoForgeRecipeId = AutoForge.Recipes[Config.AutoForgeRecipeId] and Config.AutoForgeRecipeId or "WeaponSword"
+    Config.AutoForgeOreComposition = AutoForge.NormalizeComposition(Config.AutoForgeOreComposition)
+    Config.AutoForgeRequestedCrafts = math.floor(ClampNumber(Config.AutoForgeRequestedCrafts, 1, 999, 1))
     Config.SellMaxRarity = math.floor(ClampNumber(Config.SellMaxRarity, 0, 10, 5))
     Config.AutoStartWorldId = type(Config.AutoStartWorldId) == "string" and Config.AutoStartWorldId or "World3"
     Config.AutoStartDifficulty = math.max(1, math.floor(tonumber(Config.AutoStartDifficulty) or 10))
@@ -165,8 +217,12 @@ local function SaveConfig()
     Config.AutoBuy = _G.AutoBuy
     Config.AutoSell = _G.AutoSell
     Config.AutoSeasonBuy = _G.AutoSeasonBuy
+    Config.AutoForge = _G.AutoForge
     Config.AutoBuyWantedItemIds = AutoBuyWantedItemIds or Config.AutoBuyWantedItemIds
     Config.AutoSeasonBuyWantedItemIds = AutoSeasonBuyWantedItemIds or Config.AutoSeasonBuyWantedItemIds
+    Config.AutoForgeRecipeId = AutoForge.RecipeId or Config.AutoForgeRecipeId
+    Config.AutoForgeOreComposition = AutoForge.Composition or Config.AutoForgeOreComposition
+    Config.AutoForgeRequestedCrafts = AutoForge.RequestedCrafts or Config.AutoForgeRequestedCrafts
     Config.SellMaxRarity = SellMaxRarity or Config.SellMaxRarity
     Config.AutoStartWorldId = AutoStartWorldId or Config.AutoStartWorldId
     Config.AutoStartDifficulty = AutoStartDifficulty or Config.AutoStartDifficulty
@@ -188,6 +244,9 @@ end
 LoadConfig()
 AutoStartWorldId = Config.AutoStartWorldId
 AutoStartDifficulty = Config.AutoStartDifficulty
+AutoForge.RecipeId = Config.AutoForgeRecipeId
+AutoForge.Composition = Config.AutoForgeOreComposition
+AutoForge.RequestedCrafts = Config.AutoForgeRequestedCrafts
 
 -- KONTROL SCRIPT MASTER
 _G.AutoFarm = true
@@ -204,6 +263,7 @@ _G.PerfectForge = Config.PerfectForge
 _G.AutoBuy = Config.AutoBuy
 _G.AutoSell = Config.AutoSell
 _G.AutoSeasonBuy = Config.AutoSeasonBuy
+_G.AutoForge = Config.AutoForge
 _G.AutoRejoin = Config.AutoRejoin
 
 local SudutPutar = 0
@@ -242,6 +302,7 @@ SellMaxRarity = Config.SellMaxRarity
 OreSellModes = Config.OreSellModes
 local AutoSellDelay = 5.0
 local AutoSellContextDelay = 0.25
+local AutoSellBusy = false
 local ConsumableShopUtilModule = nil
 local ConsumableShopRemoteEvent = nil
 local SeasonShopRemoteEvent = nil
@@ -266,6 +327,11 @@ local AutoStartRetryDelay = 3.0
 local AutoStartMaxPlayers = 1
 local AutoStartPending = false
 local IsInLobby = nil
+
+if _G.BugonAutoForgeToken then
+    _G.BugonAutoForgeToken.Alive = false
+end
+_G.BugonAutoForgeToken = AutoForge.State.Token
 local RejoinWatchdog = {
     LoadingTimeout = 60,
     RetryDelays = {15, 30, 60},
@@ -893,6 +959,13 @@ local function GetGameEnum()
     return GameEnumModule
 end
 
+function AutoForge.GetKeyString()
+    if not AutoForge.KeyString then
+        AutoForge.KeyString = require(ReplicatedStorage:WaitForChild("Enum"):WaitForChild("KeyString"))
+    end
+    return AutoForge.KeyString
+end
+
 local CachedGoldShopCatalog = nil
 local CachedSeasonShopCatalog = nil
 local CachedOreCatalog = nil
@@ -1262,6 +1335,63 @@ local function GetItemDisplayName(ItemId)
         return DisplayName
     end
     return string.gsub(BaseId, "_", " ")
+end
+
+function AutoForge.GetInventory()
+    local Framework = GetFrameworkModule()
+    local DataUtil = Framework.Modules.DataUtil
+    local KeyString = AutoForge.GetKeyString()
+    local Ores = DataUtil:GetValue(LocalPlayer, {"Ores"}) or {}
+    local Crystals = DataUtil:GetValue(LocalPlayer, {KeyString.EquipmentUtil.Crystals}) or {}
+    return Ores, Crystals
+end
+
+function AutoForge.GetCompositionTotal(Composition)
+    local Total = 0
+    for _, Count in pairs(Composition or {}) do
+        Total = Total + math.max(0, math.floor(tonumber(Count) or 0))
+    end
+    return Total
+end
+
+function AutoForge.CalculateLimit(Recipe, Composition, Ores, Crystals)
+    if not Recipe or AutoForge.GetCompositionTotal(Composition) ~= Recipe.OreCount then
+        return 0, nil, "Composition must equal " .. tostring(Recipe and Recipe.OreCount or 0)
+    end
+
+    local MaxCrafts = math.huge
+    local LimitingItemId = nil
+    for OreId, PerCraft in pairs(Composition) do
+        PerCraft = math.floor(tonumber(PerCraft) or 0)
+        if PerCraft > 0 then
+            local OwnedCount = tonumber(Ores[OreId]) or 0
+            local OreCrafts = math.floor(OwnedCount / PerCraft)
+            if OreCrafts < MaxCrafts then
+                MaxCrafts = OreCrafts
+                LimitingItemId = OreId
+            end
+        end
+    end
+
+    if Recipe.RelicId then
+        local ForgeUtil = GetFrameworkModule().Modules.ForgeUtil
+        local RelicUsable = false
+        pcall(function()
+            RelicUsable = ForgeUtil:IsRelicUsable(LocalPlayer, Recipe.RelicId)
+        end)
+        local RelicCount = RelicUsable and (tonumber(Crystals[Recipe.RelicId]) or 0) or 0
+        if RelicCount < MaxCrafts then
+            MaxCrafts = RelicCount
+            LimitingItemId = Recipe.RelicId
+        end
+    end
+
+    if MaxCrafts == math.huge then
+        MaxCrafts = 0
+    end
+    MaxCrafts = math.max(0, math.floor(MaxCrafts))
+    local Reason = MaxCrafts > 0 and nil or "Insufficient materials"
+    return MaxCrafts, LimitingItemId, Reason
 end
 
 local function GetOreBackpackUsage()
@@ -1634,6 +1764,138 @@ local function TryAutoSellOresOnce()
     end
 end
 
+function AutoForge.RefreshState()
+    if AutoForge.State.Refresh then
+        pcall(AutoForge.State.Refresh)
+    end
+end
+
+function AutoForge.SetStatus(Status)
+    AutoForge.State.Status = Status
+    AutoForge.RefreshState()
+end
+
+function AutoForge.WaitForData(ForgeUtil, ExpectedOreCount, Timeout)
+    local Deadline = os.clock() + Timeout
+    repeat
+        local Success, ForgeData = pcall(ForgeUtil.GetForgeData, ForgeUtil, LocalPlayer)
+        if Success and type(ForgeData) == "table" and ForgeData.OresNum == ExpectedOreCount and
+            type(ForgeData.QTE) == "table" then
+            return ForgeData
+        end
+        task.wait(0.1)
+    until os.clock() >= Deadline
+    return nil
+end
+
+function AutoForge.RunCraft(Recipe, Composition)
+    local ForgeUtil = GetFrameworkModule().Modules.ForgeUtil
+    GetForgeRemoteFunction():InvokeServer("DropOres", Composition, Recipe.Category, Recipe.RelicId)
+
+    local ForgeData = AutoForge.WaitForData(ForgeUtil, Recipe.OreCount, 5.0)
+    if not ForgeData then
+        error("pending forge timeout")
+    end
+
+    local QTEConfig = ForgeUtil:GetForgeQTE(ForgeData.OresNum)
+    local CompletedQTE = tonumber(ForgeData.QTE.Times) or 0
+    local TotalQTE = tonumber(QTEConfig and QTEConfig.QT) or 0
+    for _ = CompletedQTE + 1, TotalQTE do
+        local QTEData = ForgeUtil:GetQTE(LocalPlayer)
+        if type(QTEData) ~= "table" or not QTEData.UUID then
+            error("missing QTE UUID")
+        end
+        ForgeUtil:QTE(LocalPlayer, {
+            UUID = QTEData.UUID,
+            Rating = 15
+        })
+        task.wait(0.15)
+    end
+
+    ForgeUtil:ForgeFinish(LocalPlayer)
+    task.wait(0.5)
+    GetForgeRemoteFunction():InvokeServer("ForgeResult", true)
+end
+
+function AutoForge.StartBatch()
+    if AutoForge.State.Running then
+        _G.AutoForge = false
+        SaveConfig()
+        AutoForge.SetStatus("STOP AFTER CURRENT CRAFT")
+        return false
+    end
+    if not _G.AutoForge then
+        AutoForge.SetStatus("ENABLE AUTO FORGE FIRST")
+        return false
+    end
+    if not IsInLobby or not IsInLobby() then
+        AutoForge.SetStatus("LOBBY ONLY")
+        return false
+    end
+    if RejoinWatchdog.BlocksAutomation() then
+        AutoForge.SetStatus("REJOIN BLOCKED")
+        return false
+    end
+    if AutoSellBusy or SellPending then
+        AutoForge.SetStatus("WAIT AUTO SELL")
+        return false
+    end
+
+    local Recipe = AutoForge.Recipes[AutoForge.RecipeId]
+    local Composition = CopyMap(AutoForge.Composition)
+    local Ores, Crystals = AutoForge.GetInventory()
+    local MaxCrafts, LimitingItemId, Reason = AutoForge.CalculateLimit(Recipe, Composition, Ores, Crystals)
+    if MaxCrafts <= 0 then
+        AutoForge.SetStatus(Reason or "INSUFFICIENT MATERIALS")
+        return false
+    end
+
+    local Planned = math.min(AutoForge.RequestedCrafts, MaxCrafts)
+    AutoForge.State.Running = true
+    AutoForge.State.Completed = 0
+    AutoForge.State.Planned = Planned
+    if Planned < AutoForge.RequestedCrafts then
+        AutoForge.SetStatus("ADJUSTED TO " .. tostring(Planned) .. " - " .. GetItemDisplayName(LimitingItemId))
+    else
+        AutoForge.SetStatus("STARTING 0/" .. tostring(Planned))
+    end
+
+    task.spawn(function()
+        local Success, ErrorMessage = pcall(function()
+            for CraftIndex = 1, Planned do
+                if not AutoForge.State.Token.Alive or not _G.AutoForge then
+                    break
+                end
+                if not IsInLobby() or RejoinWatchdog.BlocksAutomation() or AutoSellBusy or SellPending then
+                    error("automation state changed")
+                end
+
+                local CurrentOres, CurrentCrystals = AutoForge.GetInventory()
+                local CurrentMax = AutoForge.CalculateLimit(Recipe, Composition, CurrentOres, CurrentCrystals)
+                if CurrentMax <= 0 then
+                    break
+                end
+
+                AutoForge.SetStatus("FORGING " .. tostring(CraftIndex) .. "/" .. tostring(Planned))
+                AutoForge.RunCraft(Recipe, Composition)
+                AutoForge.State.Completed = CraftIndex
+                AutoForge.RefreshState()
+            end
+        end)
+
+        AutoForge.State.Running = false
+        if not Success then
+            AutoForge.SetStatus("ERROR: " .. tostring(ErrorMessage))
+            warn("[AutoForge] " .. tostring(ErrorMessage))
+        elseif AutoForge.State.Completed >= Planned then
+            AutoForge.SetStatus("DONE " .. tostring(AutoForge.State.Completed) .. "/" .. tostring(Planned))
+        else
+            AutoForge.SetStatus("STOPPED " .. tostring(AutoForge.State.Completed) .. "/" .. tostring(Planned))
+        end
+    end)
+    return true
+end
+
 function RejoinWatchdog.ProcessPostRejoin()
     if not Config.RecoveryPending or not _G.AutoRejoin or RejoinWatchdog.BlocksAutomation() or not IsInLobby() then
         return
@@ -1671,8 +1933,10 @@ task.spawn(function()
     while true do
         task.wait(AutoSellDelay)
         if (_G.AutoSell or Config.RecoveryPending) and IsInLobby and IsInLobby() and
-            not RejoinWatchdog.BlocksAutomation() then
+            not RejoinWatchdog.BlocksAutomation() and not AutoForge.State.Running then
+            AutoSellBusy = true
             pcall(TryAutoSellOresOnce)
+            AutoSellBusy = false
         end
     end
 end)
@@ -3311,6 +3575,295 @@ AutoSeasonBuyButtonToggle.MouseButton1Click:Connect(function()
     SaveConfig()
 end)
 
+function AutoForge.BuildMenuPage(Context)
+    local Theme = Context.Theme
+    local Page = Instance.new("Frame")
+    Page.Name = "AutoForgePage"
+    Page.Size = UDim2.fromScale(1, 1)
+    Page.BackgroundTransparency = 1
+    Page.Visible = false
+    Page.Parent = Context.Parent
+
+    local ToggleButton = Context.CreateButton(Page, "")
+    ToggleButton.Position = UDim2.fromOffset(0, 0)
+    ToggleButton.Size = UDim2.new(1, 0, 0, 30)
+
+    local RecipeButton = Context.CreateButton(Page, "")
+    RecipeButton.Position = UDim2.fromOffset(0, 34)
+    RecipeButton.Size = UDim2.new(1, 0, 0, 30)
+    RecipeButton.TextXAlignment = Enum.TextXAlignment.Left
+
+    local RecipeOptions = Instance.new("ScrollingFrame")
+    RecipeOptions.Name = "AutoForgeRecipeOptions"
+    RecipeOptions.Position = UDim2.fromOffset(0, 68)
+    RecipeOptions.Size = UDim2.new(1, 0, 0, 180)
+    RecipeOptions.BackgroundColor3 = Theme.Surface
+    RecipeOptions.BorderSizePixel = 0
+    RecipeOptions.ScrollBarThickness = 3
+    RecipeOptions.ScrollBarImageColor3 = Theme.Accent
+    RecipeOptions.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    RecipeOptions.CanvasSize = UDim2.fromOffset(0, 0)
+    RecipeOptions.Visible = false
+    RecipeOptions.ZIndex = 40
+    RecipeOptions.Parent = Page
+    Context.AddCorner(RecipeOptions, 6)
+    Context.AddStroke(RecipeOptions, Theme.Accent)
+    local RecipePadding = Instance.new("UIPadding")
+    RecipePadding.PaddingTop = UDim.new(0, 5)
+    RecipePadding.PaddingBottom = UDim.new(0, 5)
+    RecipePadding.PaddingLeft = UDim.new(0, 5)
+    RecipePadding.PaddingRight = UDim.new(0, 5)
+    RecipePadding.Parent = RecipeOptions
+    local RecipeLayout = Instance.new("UIListLayout")
+    RecipeLayout.Padding = UDim.new(0, 4)
+    RecipeLayout.Parent = RecipeOptions
+
+    local CraftCountInput = Instance.new("TextBox")
+    CraftCountInput.Name = "AutoForgeCraftCount"
+    CraftCountInput.Position = UDim2.fromOffset(0, 68)
+    CraftCountInput.Size = UDim2.new(0.46, 0, 0, 30)
+    CraftCountInput.BackgroundColor3 = Theme.Surface
+    CraftCountInput.BorderSizePixel = 0
+    CraftCountInput.ClearTextOnFocus = false
+    CraftCountInput.Font = Enum.Font.GothamMedium
+    CraftCountInput.PlaceholderText = "Craft count"
+    CraftCountInput.TextColor3 = Theme.Text
+    CraftCountInput.TextSize = 12
+    CraftCountInput.Parent = Page
+    Context.AddCorner(CraftCountInput, 6)
+    Context.AddStroke(CraftCountInput)
+
+    local StartButton = Context.CreateButton(Page, "START FORGE")
+    StartButton.Position = UDim2.new(0.48, 0, 0, 68)
+    StartButton.Size = UDim2.new(0.52, 0, 0, 30)
+
+    local Summary = Context.CreateText(Page, "", 10, Theme.Muted)
+    Summary.Position = UDim2.fromOffset(4, 102)
+    Summary.Size = UDim2.new(1, -8, 0, 32)
+    Summary.TextWrapped = true
+    Summary.TextYAlignment = Enum.TextYAlignment.Top
+
+    local SearchBox = Instance.new("TextBox")
+    SearchBox.Name = "AutoForgeOreSearch"
+    SearchBox.Position = UDim2.fromOffset(0, 138)
+    SearchBox.Size = UDim2.new(1, -66, 0, 28)
+    SearchBox.BackgroundColor3 = Theme.Surface
+    SearchBox.BorderSizePixel = 0
+    SearchBox.ClearTextOnFocus = false
+    SearchBox.Font = Enum.Font.Gotham
+    SearchBox.PlaceholderText = "Search ore..."
+    SearchBox.PlaceholderColor3 = Theme.Muted
+    SearchBox.Text = ""
+    SearchBox.TextColor3 = Theme.Text
+    SearchBox.TextSize = 11
+    SearchBox.Parent = Page
+    Context.AddCorner(SearchBox, 6)
+    Context.AddStroke(SearchBox)
+
+    local RefreshButton = Context.CreateButton(Page, "REFRESH")
+    RefreshButton.Position = UDim2.new(1, -60, 0, 138)
+    RefreshButton.Size = UDim2.fromOffset(60, 28)
+    RefreshButton.TextSize = 10
+
+    local OreList = Instance.new("ScrollingFrame")
+    OreList.Name = "AutoForgeOreList"
+    OreList.Position = UDim2.fromOffset(0, 170)
+    OreList.Size = UDim2.new(1, 0, 1, -170)
+    OreList.BackgroundTransparency = 1
+    OreList.BorderSizePixel = 0
+    OreList.ScrollBarThickness = 3
+    OreList.ScrollBarImageColor3 = Theme.Accent
+    OreList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    OreList.CanvasSize = UDim2.fromOffset(0, 0)
+    OreList.Parent = Page
+    local OreLayout = Instance.new("UIListLayout")
+    OreLayout.Padding = UDim.new(0, 4)
+    OreLayout.Parent = OreList
+
+    local PageState = {
+        Page = Page,
+        RecipeOptions = RecipeOptions,
+        Rows = {}
+    }
+
+    local function FilterRows()
+        local Query = string.lower(SearchBox.Text or "")
+        for _, RowState in ipairs(PageState.Rows) do
+            RowState.Gui.Visible = Query == "" or string.find(RowState.SearchText, Query, 1, true) ~= nil
+        end
+    end
+
+    local function RefreshSummary()
+        local Recipe = AutoForge.Recipes[AutoForge.RecipeId] or AutoForge.Recipes.WeaponSword
+        local Ores, Crystals = AutoForge.GetInventory()
+        local Total = AutoForge.GetCompositionTotal(AutoForge.Composition)
+        local MaxCrafts, LimitingItemId, Reason = AutoForge.CalculateLimit(Recipe, AutoForge.Composition, Ores, Crystals)
+        local RelicText = ""
+        if Recipe.RelicId then
+            RelicText = " | RELIC " .. tostring(tonumber(Crystals[Recipe.RelicId]) or 0)
+        end
+
+        ToggleButton.Text = _G.AutoForge and "AUTO FORGE: ON" or "AUTO FORGE: OFF"
+        ToggleButton.BackgroundColor3 = _G.AutoForge and Theme.Enabled or Theme.Disabled
+        RecipeButton.Text = "  " .. Recipe.Category .. " - " .. Recipe.Label .. " - " .. tostring(Recipe.OreCount) ..
+                                " Ore - " .. tostring(Recipe.Chance) .. "%  \226\150\188"
+        if not CraftCountInput:IsFocused() then
+            CraftCountInput.Text = "CRAFT COUNT: " .. tostring(AutoForge.RequestedCrafts)
+        end
+
+        local Detail = AutoForge.State.Status
+        if Reason then
+            Detail = Reason
+        elseif MaxCrafts < AutoForge.RequestedCrafts then
+            Detail = "Adjusted " .. tostring(AutoForge.RequestedCrafts) .. " to " .. tostring(MaxCrafts) ..
+                         " - Limited by " .. GetItemDisplayName(LimitingItemId)
+        end
+        Summary.Text = "ORE " .. tostring(Total) .. "/" .. tostring(Recipe.OreCount) .. " | MAX " ..
+                           tostring(MaxCrafts) .. RelicText .. "\n" .. tostring(Detail)
+        StartButton.Text = AutoForge.State.Running and "STOP AFTER CRAFT" or "START FORGE"
+        StartButton.BackgroundColor3 = AutoForge.State.Running and Theme.Keep or Theme.Accent
+
+        for _, RowState in ipairs(PageState.Rows) do
+            local Owned = tonumber(Ores[RowState.ItemId]) or 0
+            local Selected = tonumber(AutoForge.Composition[RowState.ItemId]) or 0
+            RowState.Owned.Text = "x" .. tostring(Owned)
+            RowState.Selected.Text = tostring(Selected)
+            RowState.Minus.BackgroundColor3 = Selected > 0 and Theme.Sell or Theme.Disabled
+            RowState.Plus.BackgroundColor3 = Owned > Selected and Total < Recipe.OreCount and Theme.Enabled or Theme.Disabled
+        end
+    end
+
+    local function ClearRows()
+        for _, RowState in ipairs(PageState.Rows) do
+            RowState.Gui:Destroy()
+        end
+        PageState.Rows = {}
+    end
+
+    local function BuildRows()
+        ClearRows()
+        for _, Entry in ipairs(GetOreCatalog(true)) do
+            local DisplayName = GetItemDisplayName(Entry.ItemId)
+            local Row = Context.CreateButton(OreList, "")
+            Row.Name = "ForgeOre_" .. Entry.ItemId
+            Row.Size = UDim2.new(1, -2, 0, 38)
+
+            local Name = Context.CreateText(Row, DisplayName, 11)
+            Name.Position = UDim2.fromOffset(8, 0)
+            Name.Size = UDim2.new(1, -150, 1, 0)
+
+            local Owned = Context.CreateText(Row, "", 10, Theme.Muted, Enum.TextXAlignment.Right)
+            Owned.Position = UDim2.new(1, -142, 0, 0)
+            Owned.Size = UDim2.fromOffset(38, 38)
+
+            local Minus = Context.CreateButton(Row, "-")
+            Minus.Position = UDim2.new(1, -98, 0, 5)
+            Minus.Size = UDim2.fromOffset(26, 28)
+
+            local Selected = Context.CreateText(Row, "0", 11, Theme.Text, Enum.TextXAlignment.Center)
+            Selected.Position = UDim2.new(1, -68, 0, 0)
+            Selected.Size = UDim2.fromOffset(34, 38)
+
+            local Plus = Context.CreateButton(Row, "+")
+            Plus.Position = UDim2.new(1, -30, 0, 5)
+            Plus.Size = UDim2.fromOffset(26, 28)
+
+            local RowState = {
+                Gui = Row,
+                ItemId = Entry.ItemId,
+                Owned = Owned,
+                Minus = Minus,
+                Selected = Selected,
+                Plus = Plus,
+                SearchText = string.lower(DisplayName .. " " .. Entry.ItemId)
+            }
+            table.insert(PageState.Rows, RowState)
+
+            Minus.Activated:Connect(function()
+                RecipeOptions.Visible = false
+                local Count = tonumber(AutoForge.Composition[Entry.ItemId]) or 0
+                if Count > 1 then
+                    AutoForge.Composition[Entry.ItemId] = Count - 1
+                else
+                    AutoForge.Composition[Entry.ItemId] = nil
+                end
+                SaveConfig()
+                RefreshSummary()
+            end)
+            Plus.Activated:Connect(function()
+                RecipeOptions.Visible = false
+                local Recipe = AutoForge.Recipes[AutoForge.RecipeId]
+                local Ores = AutoForge.GetInventory()
+                local OwnedCount = tonumber(Ores[Entry.ItemId]) or 0
+                local SelectedCount = tonumber(AutoForge.Composition[Entry.ItemId]) or 0
+                if SelectedCount < OwnedCount and AutoForge.GetCompositionTotal(AutoForge.Composition) < Recipe.OreCount then
+                    AutoForge.Composition[Entry.ItemId] = SelectedCount + 1
+                    SaveConfig()
+                    RefreshSummary()
+                end
+            end)
+        end
+        FilterRows()
+        RefreshSummary()
+    end
+
+    for _, RecipeId in ipairs(AutoForge.RecipeOrder) do
+        local Recipe = AutoForge.Recipes[RecipeId]
+        local Option = Context.CreateButton(RecipeOptions, Recipe.Category .. " - " .. Recipe.Label .. " - " ..
+            tostring(Recipe.OreCount) .. " Ore - " .. tostring(Recipe.Chance) .. "%")
+        Option.Size = UDim2.new(1, 0, 0, 28)
+        Option.ZIndex = 41
+        Option.Activated:Connect(function()
+            RecipeOptions.Visible = false
+            AutoForge.RecipeId = RecipeId
+            AutoForge.Composition = {}
+            AutoForge.State.Status = "SELECT ORE COMPOSITION"
+            SaveConfig()
+            RefreshSummary()
+        end)
+    end
+
+    ToggleButton.Activated:Connect(function()
+        RecipeOptions.Visible = false
+        _G.AutoForge = not _G.AutoForge
+        if not _G.AutoForge and AutoForge.State.Running then
+            AutoForge.State.Status = "STOP AFTER CURRENT CRAFT"
+        end
+        SaveConfig()
+        RefreshSummary()
+    end)
+    RecipeButton.Activated:Connect(function()
+        RecipeOptions.Visible = not RecipeOptions.Visible
+    end)
+    CraftCountInput.Focused:Connect(function()
+        RecipeOptions.Visible = false
+        CraftCountInput.Text = tostring(AutoForge.RequestedCrafts)
+    end)
+    CraftCountInput.FocusLost:Connect(function()
+        AutoForge.RequestedCrafts = math.floor(ClampNumber(CraftCountInput.Text, 1, 999, 1))
+        SaveConfig()
+        RefreshSummary()
+    end)
+    StartButton.Activated:Connect(function()
+        RecipeOptions.Visible = false
+        AutoForge.StartBatch()
+        RefreshSummary()
+    end)
+    SearchBox:GetPropertyChangedSignal("Text"):Connect(FilterRows)
+    RefreshButton.Activated:Connect(function()
+        RecipeOptions.Visible = false
+        BuildRows()
+    end)
+
+    function PageState.Close()
+        RecipeOptions.Visible = false
+    end
+    PageState.Refresh = RefreshSummary
+    AutoForge.State.Refresh = RefreshSummary
+    BuildRows()
+    return PageState
+end
+
 local function BuildV6Menu()
 -- V6 NATIVE D3D-STYLE MENU
 for _, OldControl in ipairs({MasterButton, ModeButton, ReplayButtonToggle, ForgeButtonToggle, AutoBuyButtonToggle,
@@ -3744,16 +4297,19 @@ UtilityNavigation.BackgroundTransparency = 1
 UtilityNavigation.Parent = UtilityTab
 
 local DungeonTabButton = CreateButton(UtilityNavigation, "DUNGEON")
-DungeonTabButton.Size = UDim2.new(0.25, -4, 1, 0)
+DungeonTabButton.Size = UDim2.new(0.2, -4, 1, 0)
 local GroceryTabButton = CreateButton(UtilityNavigation, "GROCERY")
-GroceryTabButton.Position = UDim2.new(0.25, 2, 0, 0)
-GroceryTabButton.Size = UDim2.new(0.25, -4, 1, 0)
+GroceryTabButton.Position = UDim2.new(0.2, 2, 0, 0)
+GroceryTabButton.Size = UDim2.new(0.2, -4, 1, 0)
 local SeasonTabButton = CreateButton(UtilityNavigation, "SEASON")
-SeasonTabButton.Position = UDim2.new(0.5, 4, 0, 0)
-SeasonTabButton.Size = UDim2.new(0.25, -4, 1, 0)
+SeasonTabButton.Position = UDim2.new(0.4, 4, 0, 0)
+SeasonTabButton.Size = UDim2.new(0.2, -4, 1, 0)
 local AutoSellTabButton = CreateButton(UtilityNavigation, "AUTO SELL")
-AutoSellTabButton.Position = UDim2.new(0.75, 6, 0, 0)
-AutoSellTabButton.Size = UDim2.new(0.25, -6, 1, 0)
+AutoSellTabButton.Position = UDim2.new(0.6, 6, 0, 0)
+AutoSellTabButton.Size = UDim2.new(0.2, -4, 1, 0)
+local AutoForgeTabButton = CreateButton(UtilityNavigation, "FORGE")
+AutoForgeTabButton.Position = UDim2.new(0.8, 8, 0, 0)
+AutoForgeTabButton.Size = UDim2.new(0.2, -8, 1, 0)
 
 local UtilityPages = Instance.new("Frame")
 UtilityPages.Position = UDim2.fromOffset(0, 124)
@@ -3896,6 +4452,14 @@ TriggerStatus.Size = UDim2.new(1, -20, 0, 30)
 local GroceryPage = CreateCatalogPage("GroceryPage")
 local SeasonPage = CreateCatalogPage("SeasonPage")
 local AutoSellPage = CreateCatalogPage("AutoSellPage")
+local AutoForgePage = AutoForge.BuildMenuPage({
+    Parent = UtilityPages,
+    Theme = Theme,
+    CreateButton = CreateButton,
+    CreateText = CreateText,
+    AddCorner = AddCorner,
+    AddStroke = AddStroke
+})
 
 local function ClearSelectorOptions(Options)
     for _, Child in ipairs(Options:GetChildren()) do
@@ -3966,14 +4530,17 @@ end
 local function SetUtilityPage(Name)
     DungeonOptions.Visible = false
     DifficultyOptions.Visible = false
+    AutoForgePage.Close()
     DungeonPage.Visible = Name == "Dungeon"
     GroceryPage.Page.Visible = Name == "Grocery"
     SeasonPage.Page.Visible = Name == "Season"
     AutoSellPage.Page.Visible = Name == "AutoSell"
+    AutoForgePage.Page.Visible = Name == "AutoForge"
     DungeonTabButton.BackgroundColor3 = Name == "Dungeon" and Theme.Accent or Theme.Surface
     GroceryTabButton.BackgroundColor3 = Name == "Grocery" and Theme.Accent or Theme.Surface
     SeasonTabButton.BackgroundColor3 = Name == "Season" and Theme.Accent or Theme.Surface
     AutoSellTabButton.BackgroundColor3 = Name == "AutoSell" and Theme.Accent or Theme.Surface
+    AutoForgeTabButton.BackgroundColor3 = Name == "AutoForge" and Theme.Accent or Theme.Surface
     if Name == "Dungeon" then
         pcall(BuildDungeonPage, true)
     end
@@ -3982,6 +4549,7 @@ DungeonTabButton.Activated:Connect(function() SetUtilityPage("Dungeon") end)
 GroceryTabButton.Activated:Connect(function() SetUtilityPage("Grocery") end)
 SeasonTabButton.Activated:Connect(function() SetUtilityPage("Season") end)
 AutoSellTabButton.Activated:Connect(function() SetUtilityPage("AutoSell") end)
+AutoForgeTabButton.Activated:Connect(function() SetUtilityPage("AutoForge") end)
 SetUtilityPage("Dungeon")
 
 local function ClearCatalogRows(PageState)

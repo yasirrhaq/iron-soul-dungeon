@@ -102,6 +102,16 @@ Brief behavior notes for `holygrail/script-v6-full-run-dg.lua`.
 - Hooked `ForgeRF` calls are inspected when `PERFECT FORGE` is enabled.
 - Any forge argument table containing `Rating` is forced to `15` before remote call continues.
 
+## Auto Forge
+
+- Utility `FORGE` page selects weapon or armor recipe, exact per-craft ore composition, and requested craft count.
+- Weapon recipes include Sword, Staff, Axe/Hammer, Fist, Common Fist Relic, and Luxury Fist Relic variants; armor recipes include Light Helmet, Light Armor, Heavy Helmet, and Heavy Armor.
+- Relic counts come from Crystals inventory through `KeyString.EquipmentUtil.Crystals`; Common and Luxury Fist recipes consume `FistRelic_1` and `FistRelic_2` respectively.
+- Batch maximum uses the lowest `floor(owned/per-craft)` ore limit and optional relic count. Requested count displays an automatic clamp when inventory supports fewer crafts.
+- Auto Forge defaults off and consumes nothing until user enables it and presses `START FORGE` in lobby.
+- Direct flow calls `DropOres`, resumes server QTE progress with fresh UUID values and rating `15`, finishes forge, then acknowledges every random result.
+- Turning Auto Forge off during a batch finishes current craft, then stops before next craft. Auto-sell and rejoin recovery cannot overlap an active forge batch.
+
 ## Safety And Utility
 
 - Anti-AFK captures controller and right-clicks on idle.
