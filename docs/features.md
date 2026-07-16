@@ -118,7 +118,8 @@ Brief behavior notes for `holygrail/script-v6-full-run-dg.lua`.
 - Utility → Dungeon contains persisted `AUTO POTION` controls and a searchable list built from every known `ResPotion` entry whose `PotionType` is `Buff`.
 - Gold Potion and other normal buff potions appear automatically. Friendship/Bond potions stay excluded because they require a selected partner payload.
 - Each checked potion type is independent and always consumes exactly one item through native `PotionUtil:UsePotion(LocalPlayer, PotionId, 1, nil)`.
-- Selected potions are used only inside an active dungeon when at least one configured `BuffIdN` attribute is inactive. Lobby, loading, settlement, and rejoin recovery block requests.
+- Selected potions are used only inside an active dungeon when their resolved player attributes are inactive. Internal IDs such as `Buff_DropRateBoost_1` resolve to `DropRateBoost`; lobby, loading, settlement, and rejoin recovery block requests.
+- Dungeon transitions use a 30-second grace period that starts only after full eligibility. Loading, lobby, settlement, rejoin recovery, character replacement, or `PlayerAttrEntry` replacement resets the timer and invalidates stale delayed scans.
 - Buff attribute change signals drive normal refresh. One 15-second fallback scan recovers missed replication; disabled Auto Potion disconnects signals and performs no scans.
 - Multiple expired buffs enter one deduplicated queue with 0.65-second request spacing. Inventory decrease proves server acceptance but stays activation-latched until the native buff attribute turns active, preventing repeated consumption during replication delay.
 - Potion rows show translated name, owned count, and `Active`, `Inactive`, `Pending`, `Out of Stock`, or `Unavailable`; no guessed countdown is displayed.

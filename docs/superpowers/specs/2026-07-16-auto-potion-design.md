@@ -96,7 +96,9 @@ Examples confirmed or exposed by game data include:
 - `GoldBoost`
 - `Luck`
 
-A buff attribute is active when its numeric value is greater than zero. Missing, nil, or non-positive attributes are inactive.
+`ResPotion.BuffIdN` values are internal buff IDs, not always direct player attribute names. Resolve IDs shaped like `Buff_<Attribute>_<Tier>` to `<Attribute>` while retaining the original ID as a compatibility candidate. For example, `Buff_DropRateBoost_1` resolves to `DropRateBoost`.
+
+A resolved buff attribute is active when its numeric value is greater than zero. Missing, nil, or non-positive attributes are inactive.
 
 For a potion with multiple configured Buff IDs:
 
@@ -147,7 +149,9 @@ Block consumption when any of these conditions apply:
 - Teleport/rejoin recovery blocks automation.
 - Character or PlayerAttrEntry is unavailable.
 
-Entering a valid dungeon with selected inactive buffs triggers an immediate evaluation instead of waiting for the next 15-second scan.
+After every blocked state, Auto Potion waits for a 30-second dungeon-ready grace period before evaluating selected potions. The grace clock starts only after all eligibility checks pass, including `LoadingEnd == true`, and therefore never advances during loading.
+
+Lobby, loading, settlement, rejoin recovery, missing character, or missing/replaced `PlayerAttrEntry` resets the grace clock and invalidates any delayed scan from the previous dungeon context. When the current grace period expires, its generation token triggers one immediate scan. A stale timer from an older dungeon cannot queue a potion.
 
 ## Sequential Use Queue
 

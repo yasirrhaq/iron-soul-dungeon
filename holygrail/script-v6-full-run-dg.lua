@@ -75,6 +75,7 @@ local AutoPotion = {
     ScanInterval = 15,
     QueueSpacing = 0.65,
     ConfirmTimeout = 5,
+    DungeonGraceSeconds = 30,
     Selected = nil,
     Catalog = {},
     Order = {},
@@ -88,6 +89,10 @@ local AutoPotion = {
     LifecycleConnections = {},
     WorkerRunning = false,
     ScanGeneration = 0,
+    GraceGeneration = 0,
+    GraceStartedAt = nil,
+    GraceCharacter = nil,
+    GraceAttrEntry = nil,
     LastRequestAt = -math.huge,
     Status = "OFF",
     Refresh = nil,
@@ -1397,6 +1402,15 @@ function AutoPotion.GetBuffFields(Definition)
     return BuffIds, Durations
 end
 
+function AutoPotion.GetBuffAttributeIds(BuffId)
+    local AttributeIds = {BuffId}
+    local NativeAttributeId = string.match(BuffId, "^Buff_(.+)_%d+$")
+    if NativeAttributeId and NativeAttributeId ~= BuffId then
+        table.insert(AttributeIds, NativeAttributeId)
+    end
+    return AttributeIds
+end
+
 function AutoPotion.AreBuffsActive(BuffIds, GetValue)
     if type(BuffIds) ~= "table" or #BuffIds <= 0 then
         return false
@@ -1422,6 +1436,7 @@ function AutoPotion.RunSelfCheck()
         {Name = "out-of-stock potion", Actual = AutoPotion.ShouldQueueState(true, 0, false, false, false, false), Expected = false},
         {Name = "missed-signal recovery", Actual = AutoPotion.ShouldQueueState(true, 1, false, false, false, false), Expected = true},
         {Name = "owned decrease waits for buff activation", Actual = AutoPotion.ShouldQueueState(true, 1, false, false, false, true), Expected = false},
+        {Name = "Buff_DropRateBoost_1 maps to DropRateBoost", Actual = AutoPotion.GetBuffAttributeIds("Buff_DropRateBoost_1")[2], Expected = "DropRateBoost"},
         {Name = "Bond exclusion", Actual = AutoPotion.ShouldCatalog({PotionType = "BondIntimacy"}), Expected = false}
     }
     for _, Case in ipairs(Cases) do
@@ -1483,8 +1498,10 @@ function AutoPotion.BuildCatalog(ForceRefresh)
         Catalog[PotionId] = Entry
         table.insert(Order, PotionId)
         for _, BuffId in ipairs(BuffIds) do
-            ByBuffId[BuffId] = ByBuffId[BuffId] or {}
-            table.insert(ByBuffId[BuffId], PotionId)
+            for _, AttributeId in ipairs(AutoPotion.GetBuffAttributeIds(BuffId)) do
+                ByBuffId[AttributeId] = ByBuffId[AttributeId] or {}
+                table.insert(ByBuffId[AttributeId], PotionId)
+            end
         end
     end
 
@@ -1525,6 +1542,37 @@ function AutoPotion.GetPlayerAttrEntry()
     return LocalPlayer:FindFirstChild("PlayerAttrEntry")
 end
 
+function AutoPotion.ResetDungeonGrace()
+    if AutoPotion.GraceStartedAt or AutoPotion.GraceCharacter or AutoPotion.GraceAttrEntry then
+        AutoPotion.GraceGeneration = AutoPotion.GraceGeneration + 1
+    end
+    AutoPotion.GraceStartedAt = nil
+    AutoPotion.GraceCharacter = nil
+    AutoPotion.GraceAttrEntry = nil
+end
+
+function AutoPotion.CheckDungeonGrace(Character, PlayerAttrEntry)
+    if AutoPotion.GraceCharacter ~= Character or AutoPotion.GraceAttrEntry ~= PlayerAttrEntry or
+        not AutoPotion.GraceStartedAt then
+        AutoPotion.GraceGeneration = AutoPotion.GraceGeneration + 1
+        local Generation = AutoPotion.GraceGeneration
+        AutoPotion.GraceStartedAt = os.clock()
+        AutoPotion.GraceCharacter = Character
+        AutoPotion.GraceAttrEntry = PlayerAttrEntry
+        task.delay(AutoPotion.DungeonGraceSeconds, function()
+            if AutoPotion.Token.Alive and _G.AutoPotion and Generation == AutoPotion.GraceGeneration and
+                AutoPotion.GraceCharacter == Character and AutoPotion.GraceAttrEntry == PlayerAttrEntry then
+                pcall(AutoPotion.Scan, false)
+            end
+        end)
+    end
+    local Remaining = AutoPotion.DungeonGraceSeconds - (os.clock() - AutoPotion.GraceStartedAt)
+    if Remaining > 0 then
+        return false, "BLOCKED - POTION GRACE " .. tostring(math.ceil(Remaining)) .. "S"
+    end
+    return true
+end
+
 function AutoPotion.IsSettlementVisible()
     local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
     local ResultGui = PlayerGui and PlayerGui:FindFirstChild("ResultGui")
@@ -1547,21 +1595,28 @@ end
 
 function AutoPotion.IsDungeonEligible()
     if IsInLobby and IsInLobby() then
+        AutoPotion.ResetDungeonGrace()
         return false, "BLOCKED - LOBBY"
     end
     if workspace:GetAttribute("LoadingEnd") ~= true then
+        AutoPotion.ResetDungeonGrace()
         return false, "BLOCKED - LOADING"
     end
     if AutoPotion.IsSettlementVisible() then
+        AutoPotion.ResetDungeonGrace()
         return false, "BLOCKED - SETTLEMENT"
     end
     if RejoinWatchdog.BlocksAutomation() then
+        AutoPotion.ResetDungeonGrace()
         return false, "BLOCKED - REJOIN"
     end
-    if not LocalPlayer.Character or not AutoPotion.GetPlayerAttrEntry() then
+    local Character = LocalPlayer.Character
+    local PlayerAttrEntry = AutoPotion.GetPlayerAttrEntry()
+    if not Character or not PlayerAttrEntry then
+        AutoPotion.ResetDungeonGrace()
         return false, "BLOCKED - LOADING"
     end
-    return true
+    return AutoPotion.CheckDungeonGrace(Character, PlayerAttrEntry)
 end
 
 function AutoPotion.IsEntryActive(Entry)
@@ -1570,7 +1625,13 @@ function AutoPotion.IsEntryActive(Entry)
         return false
     end
     return AutoPotion.AreBuffsActive(Entry.BuffIds, function(BuffId)
-        return PlayerAttrEntry:GetAttribute(BuffId)
+        for _, AttributeId in ipairs(AutoPotion.GetBuffAttributeIds(BuffId)) do
+            local Value = tonumber(PlayerAttrEntry:GetAttribute(AttributeId)) or 0
+            if Value > 0 then
+                return Value
+            end
+        end
+        return 0
     end)
 end
 
@@ -1740,14 +1801,16 @@ function AutoPotion.RebuildSignals()
             local Entry = AutoPotion.Catalog[PotionId]
             if Entry then
                 for _, BuffId in ipairs(Entry.BuffIds) do
-                    if not AutoPotion.Connections[BuffId] then
-                        local ObservedBuffId = BuffId
-                        AutoPotion.Connections[ObservedBuffId] = PlayerAttrEntry:GetAttributeChangedSignal(BuffId):Connect(function()
-                            for _, RelatedPotionId in ipairs(AutoPotion.ByBuffId[ObservedBuffId] or {}) do
-                                AutoPotion.EvaluatePotion(RelatedPotionId)
-                            end
-                            AutoPotion.RefreshState()
-                        end)
+                    for _, AttributeId in ipairs(AutoPotion.GetBuffAttributeIds(BuffId)) do
+                        if not AutoPotion.Connections[AttributeId] then
+                            local ObservedAttributeId = AttributeId
+                            AutoPotion.Connections[ObservedAttributeId] = PlayerAttrEntry:GetAttributeChangedSignal(AttributeId):Connect(function()
+                                for _, RelatedPotionId in ipairs(AutoPotion.ByBuffId[ObservedAttributeId] or {}) do
+                                    AutoPotion.EvaluatePotion(RelatedPotionId)
+                                end
+                                AutoPotion.RefreshState()
+                            end)
+                        end
                     end
                 end
             end
@@ -1757,6 +1820,7 @@ function AutoPotion.RebuildSignals()
     local function RefreshContext(Child)
         local Name = Child and Child.Name or ""
         if Name == "MatchRoom" or Name == "WorldEnemys" or Name == "DragonEgg" or Name == "PlayerAttrEntry" then
+            AutoPotion.ResetDungeonGrace()
             task.defer(function()
                 AutoPotion.RebuildSignals()
                 AutoPotion.Scan(false)
@@ -1766,12 +1830,16 @@ function AutoPotion.RebuildSignals()
     table.insert(AutoPotion.LifecycleConnections, workspace.ChildAdded:Connect(RefreshContext))
     table.insert(AutoPotion.LifecycleConnections, workspace.ChildRemoved:Connect(RefreshContext))
     table.insert(AutoPotion.LifecycleConnections, workspace:GetAttributeChangedSignal("LoadingEnd"):Connect(function()
+        AutoPotion.ResetDungeonGrace()
         task.defer(function() AutoPotion.Scan(false) end)
     end))
     table.insert(AutoPotion.LifecycleConnections, LocalPlayer.ChildAdded:Connect(RefreshContext))
+    table.insert(AutoPotion.LifecycleConnections, LocalPlayer.ChildRemoved:Connect(RefreshContext))
     table.insert(AutoPotion.LifecycleConnections, LocalPlayer.CharacterAdded:Connect(function()
+        AutoPotion.ResetDungeonGrace()
         task.defer(function() AutoPotion.Scan(false) end)
     end))
+    table.insert(AutoPotion.LifecycleConnections, LocalPlayer.CharacterRemoving:Connect(AutoPotion.ResetDungeonGrace))
 end
 
 function AutoPotion.StartScanner()
@@ -1792,6 +1860,7 @@ function AutoPotion.SetEnabled(Enabled)
     AutoPotion.ScanGeneration = AutoPotion.ScanGeneration + 1
     if not _G.AutoPotion then
         AutoPotion.DisconnectSignals()
+        AutoPotion.ResetDungeonGrace()
         table.clear(AutoPotion.Queue)
         table.clear(AutoPotion.Queued)
         table.clear(AutoPotion.ActivationPending)
@@ -1809,6 +1878,7 @@ function AutoPotion.Shutdown()
     AutoPotion.Token.Alive = false
     AutoPotion.ScanGeneration = AutoPotion.ScanGeneration + 1
     AutoPotion.DisconnectSignals()
+    AutoPotion.ResetDungeonGrace()
     table.clear(AutoPotion.Queue)
     table.clear(AutoPotion.Queued)
     table.clear(AutoPotion.ActivationPending)

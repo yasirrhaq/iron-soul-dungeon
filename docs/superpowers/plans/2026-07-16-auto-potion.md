@@ -15,6 +15,7 @@
 - Exclude Friendship/Bond potion automation.
 - Consume quantity `1`; never batch potion use.
 - Run only in active dungeon, never lobby/loading/settlement/rejoin recovery.
+- Wait 30 seconds after full dungeon eligibility; blocked or replaced dungeon context resets the grace timer.
 - No one-second polling; fallback interval is 15 seconds.
 - Disconnect signals and stop scans while toggle is off.
 - No new dependency.
@@ -75,19 +76,23 @@ Add helpers for active-state evaluation, queue eligibility, and catalog filterin
 
 Block requests in lobby, loading, settlement/victory, rejoin recovery, missing character, or missing `PlayerAttrEntry`.
 
-- [ ] **Step 2: Manage selected BuffId signals**
+- [ ] **Step 2: Add race-safe dungeon grace**
+
+After base eligibility succeeds, start a 30-second grace generation bound to the current character and `PlayerAttrEntry`. Return a blocked grace status until expiry. Any blocked state, context replacement, disable, or shutdown clears the start time and increments the generation so delayed scans from older contexts become no-ops. Trigger one immediate scan when the current generation expires.
+
+- [ ] **Step 3: Manage selected BuffId signals**
 
 Create one `GetAttributeChangedSignal(BuffId)` connection per unique selected Buff ID. Rebuild after selection changes. Disconnect all while disabled.
 
-- [ ] **Step 3: Add deduplicated queue**
+- [ ] **Step 4: Add deduplicated queue**
 
 Queue selected inactive potion IDs in visible catalog order. Reject already queued or pending IDs. Use one worker and wait at least `0.65` seconds between sends.
 
-- [ ] **Step 4: Send and confirm one potion**
+- [ ] **Step 5: Send and confirm one potion**
 
 Revalidate all guards, call `PotionUtil:UsePotion(LocalPlayer, PotionId, 1, nil)`, then wait up to five seconds for active attributes or owned decrease. Timeout retries only through next scan.
 
-- [ ] **Step 5: Add 15-second fallback**
+- [ ] **Step 6: Add 15-second fallback**
 
 Start scan only while enabled. Evaluate immediately on eligible dungeon entry or enable. Scan every 15 seconds. Stop cleanly after disable/reload.
 
