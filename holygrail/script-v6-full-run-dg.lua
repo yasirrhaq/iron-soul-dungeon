@@ -1715,6 +1715,11 @@ function AutoPotion.IsSettlementVisible()
     return true
 end
 
+function AutoPotion.IsEndlessTower()
+    local CurrentWorld = workspace:FindFirstChild("World")
+    return CurrentWorld ~= nil and CurrentWorld:FindFirstChild("Start") ~= nil
+end
+
 function AutoPotion.IsDungeonEligible()
     if IsInLobby and IsInLobby() then
         AutoPotion.ResetDungeonGrace()
@@ -1723,6 +1728,10 @@ function AutoPotion.IsDungeonEligible()
     if workspace:GetAttribute("LoadingEnd") ~= true then
         AutoPotion.ResetDungeonGrace()
         return false, "BLOCKED - LOADING"
+    end
+    if AutoPotion.IsEndlessTower() then
+        AutoPotion.ResetDungeonGrace()
+        return false, "BLOCKED - ENDLESS TOWER"
     end
     if AutoPotion.IsSettlementVisible() then
         AutoPotion.ResetDungeonGrace()

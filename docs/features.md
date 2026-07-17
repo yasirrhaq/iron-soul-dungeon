@@ -122,6 +122,7 @@ Brief behavior notes for `holygrail/script-v6-full-run-dg.lua`.
 - Gold Potion and other normal buff potions appear automatically. Friendship/Bond potions stay excluded because they require a selected partner payload.
 - Each checked potion type is independent and always consumes exactly one item through native `PotionUtil:UsePotion(LocalPlayer, PotionId, 1, nil)`.
 - Selected potions are used only inside an active dungeon when their resolved player attributes are inactive. Internal IDs such as `Buff_DropRateBoost_1` resolve to `DropRateBoost`; lobby, loading, settlement, and rejoin recovery block requests.
+- Endless Tower is always excluded through the existing `workspace.World.Start` marker. Auto Potion may remain enabled, but status becomes `BLOCKED - ENDLESS TOWER` and no potion remote is sent.
 - Dungeon transitions use a 10-second grace period that starts only after full eligibility. Loading, lobby, settlement, rejoin recovery, character replacement, or `PlayerAttrEntry` replacement resets the timer and invalidates stale delayed scans.
 - `DragonEgg` and `WorldEnemys` spawn/removal still trigger reevaluation but do not restart the grace timer, avoiding repeated delays during one dungeon.
 - Buff attribute change signals drive normal refresh. One 15-second fallback scan recovers missed replication; disabled Auto Potion disconnects signals and performs no scans.

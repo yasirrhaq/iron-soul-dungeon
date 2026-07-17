@@ -15,6 +15,7 @@
 - Exclude Friendship/Bond potion automation.
 - Consume quantity `1`; never batch potion use.
 - Run only in active dungeon, never lobby/loading/settlement/rejoin recovery.
+- Never use potions in Endless Tower detected by `workspace.World.Start`.
 - Wait 10 seconds after full dungeon eligibility; blocked or replaced dungeon context resets the grace timer.
 - No one-second polling; fallback interval is 15 seconds.
 - Disconnect signals and stop scans while toggle is off.

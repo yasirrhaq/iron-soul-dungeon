@@ -148,6 +148,9 @@ Block consumption when any of these conditions apply:
 - Settlement/victory result screen is active.
 - Teleport/rejoin recovery blocks automation.
 - Character or PlayerAttrEntry is unavailable.
+- Current world contains the Endless Tower `Start` marker.
+
+Endless Tower detection reuses the farm runtime contract: `workspace.World:FindFirstChild("Start")`. While detected, Auto Potion reports `BLOCKED - ENDLESS TOWER`, does not queue potion IDs, and every final send revalidation rejects the request before `PotionUtil:UsePotion` can fire its remote.
 
 After every blocked state, Auto Potion waits for a 10-second dungeon-ready grace period before evaluating selected potions. The grace clock starts only after all eligibility checks pass, including `LoadingEnd == true`, and therefore never advances during loading.
 
