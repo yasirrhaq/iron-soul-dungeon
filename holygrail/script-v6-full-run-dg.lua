@@ -90,7 +90,7 @@ local AutoPotion = {
     ScanInterval = 15,
     QueueSpacing = 0.65,
     ConfirmTimeout = 5,
-    DungeonGraceSeconds = 30,
+    DungeonGraceSeconds = 10,
     Selected = nil,
     Catalog = {},
     Order = {},
@@ -1942,7 +1942,9 @@ function AutoPotion.RebuildSignals()
     local function RefreshContext(Child)
         local Name = Child and Child.Name or ""
         if Name == "MatchRoom" or Name == "WorldEnemys" or Name == "DragonEgg" or Name == "PlayerAttrEntry" then
-            AutoPotion.ResetDungeonGrace()
+            if Name == "MatchRoom" or Name == "PlayerAttrEntry" then
+                AutoPotion.ResetDungeonGrace()
+            end
             task.defer(function()
                 AutoPotion.RebuildSignals()
                 AutoPotion.Scan(false)

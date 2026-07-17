@@ -149,9 +149,11 @@ Block consumption when any of these conditions apply:
 - Teleport/rejoin recovery blocks automation.
 - Character or PlayerAttrEntry is unavailable.
 
-After every blocked state, Auto Potion waits for a 30-second dungeon-ready grace period before evaluating selected potions. The grace clock starts only after all eligibility checks pass, including `LoadingEnd == true`, and therefore never advances during loading.
+After every blocked state, Auto Potion waits for a 10-second dungeon-ready grace period before evaluating selected potions. The grace clock starts only after all eligibility checks pass, including `LoadingEnd == true`, and therefore never advances during loading.
 
 Lobby, loading, settlement, rejoin recovery, missing character, or missing/replaced `PlayerAttrEntry` resets the grace clock and invalidates any delayed scan from the previous dungeon context. When the current grace period expires, its generation token triggers one immediate scan. A stale timer from an older dungeon cannot queue a potion.
+
+Stage objects such as `DragonEgg` and `WorldEnemys` may trigger reevaluation but do not represent a new dungeon context and must not restart the grace clock.
 
 ## Sequential Use Queue
 

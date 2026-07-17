@@ -15,7 +15,7 @@
 - Exclude Friendship/Bond potion automation.
 - Consume quantity `1`; never batch potion use.
 - Run only in active dungeon, never lobby/loading/settlement/rejoin recovery.
-- Wait 30 seconds after full dungeon eligibility; blocked or replaced dungeon context resets the grace timer.
+- Wait 10 seconds after full dungeon eligibility; blocked or replaced dungeon context resets the grace timer.
 - No one-second polling; fallback interval is 15 seconds.
 - Disconnect signals and stop scans while toggle is off.
 - No new dependency.
@@ -78,7 +78,7 @@ Block requests in lobby, loading, settlement/victory, rejoin recovery, missing c
 
 - [ ] **Step 2: Add race-safe dungeon grace**
 
-After base eligibility succeeds, start a 30-second grace generation bound to the current character and `PlayerAttrEntry`. Return a blocked grace status until expiry. Any blocked state, context replacement, disable, or shutdown clears the start time and increments the generation so delayed scans from older contexts become no-ops. Trigger one immediate scan when the current generation expires.
+After base eligibility succeeds, start a 10-second grace generation bound to the current character and `PlayerAttrEntry`. Return a blocked grace status until expiry. Any blocked state, context replacement, disable, or shutdown clears the start time and increments the generation so delayed scans from older contexts become no-ops. Trigger one immediate scan when the current generation expires.
 
 - [ ] **Step 3: Manage selected BuffId signals**
 
