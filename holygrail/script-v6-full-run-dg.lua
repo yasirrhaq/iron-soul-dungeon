@@ -1528,6 +1528,7 @@ local function GetOreCatalog(ForceRefresh)
                 ItemId = OreId,
                 ItemType = "Ore",
                 Count = tonumber(Ores[OreId]) or 0,
+                Level = tonumber(Def.Level or Def[6]) or 0,
                 Rarity = Rarity,
                 RarityName = RarityName,
                 Def = Def
@@ -1550,10 +1551,13 @@ local function GetOreCatalog(ForceRefresh)
     end
 
     table.sort(Result, function(A, B)
-        if A.Rarity == B.Rarity then
-            return tostring(A.ItemId) < tostring(B.ItemId)
+        if A.Level ~= B.Level then
+            return A.Level > B.Level
         end
-        return A.Rarity > B.Rarity
+        if A.Rarity ~= B.Rarity then
+            return A.Rarity > B.Rarity
+        end
+        return tostring(A.ItemId) < tostring(B.ItemId)
     end)
     CachedOreCatalog = Result
     return CachedOreCatalog
