@@ -1,5 +1,7 @@
 # Target-Stat Auto Forge Design
 
+> Superseded for user-facing UX by `docs/superpowers/specs/2026-07-17-target-stat-auto-forge-ux-redesign.md`.
+
 ## Scope
 
 Extend V6 Auto Forge with editable target profiles. Profiles describe acceptable forge attribute-slot combinations. Normal Auto Forge automatically accepts every result. Target mode evaluates each result before acknowledgement, accepts and stops on a match, and handles non-matches according to an `Auto Delete Non-Match` toggle.

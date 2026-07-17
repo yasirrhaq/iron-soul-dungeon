@@ -41,6 +41,8 @@ local DefaultOreSellModes = {
     Apocalypse = "KEEP",
     DarkBlossom = "KEEP"
 }
+local AutoForgeRarityFilter = 0
+local AutoSellRarityFilter = 0
 local AutoForge = {
     Recipes = {
         WeaponSword = {Label = "Sword", Category = "Weapon", OreCount = 3, Chance = 100},
@@ -209,6 +211,104 @@ function AutoForge.NormalizeStatId(AttributeKey)
     return string.split(AttributeKey, "_")[1]
 end
 
+function AutoForge.GetDefaultPoolStats()
+    return {"AtkBonus", "CHDmgBonus", "CHIRate", "SkillDmgBonus"}
+end
+
+function AutoForge.CreateDefaultProfile(Index)
+    return {
+        Id = HttpService:GenerateGUID(false),
+        Name = "Profile " .. tostring(Index or 1),
+        Enabled = false,
+        SlotMode = "Any",
+        SlotCount = 1,
+        PoolPreset = "Offensive",
+        PoolStats = AutoForge.GetDefaultPoolStats(),
+        Rules = {{Kind = "PoolAtLeast", MinCount = 3}}
+    }
+end
+
+function AutoForge.BuildPoolLookup(PoolStats)
+    local Lookup = {}
+    for _, StatId in ipairs(type(PoolStats) == "table" and PoolStats or {}) do
+        if type(StatId) == "string" and StatId ~= "" then
+            Lookup[AutoForge.NormalizeStatId(StatId) or StatId] = true
+        end
+    end
+    return Lookup
+end
+
+function AutoForge.NormalizeProfile(Profile, Index)
+    local Source = type(Profile) == "table" and Profile or {}
+    local Result = AutoForge.CreateDefaultProfile(Index)
+    Result.Id = type(Source.Id) == "string" and Source.Id or Result.Id
+    Result.Name = type(Source.Name) == "string" and Source.Name or Result.Name
+    Result.Enabled = Source.Enabled == true
+    Result.SlotMode = Source.SlotMode == "Exact" and "Exact" or (Source.SlotMode == "AtLeast" and "AtLeast" or "Any")
+    Result.SlotCount = math.floor(ClampNumber(Source.SlotCount, 1, 10, 1))
+    Result.PoolPreset = type(Source.PoolPreset) == "string" and Source.PoolPreset or "Offensive"
+    Result.PoolStats = {}
+    local PoolSeen = {}
+    local function PushPoolStat(StatId)
+        StatId = AutoForge.NormalizeStatId(StatId)
+        if StatId and not PoolSeen[StatId] then
+            PoolSeen[StatId] = true
+            table.insert(Result.PoolStats, StatId)
+        end
+    end
+    for _, StatId in ipairs(type(Source.PoolStats) == "table" and Source.PoolStats or {}) do
+        PushPoolStat(StatId)
+    end
+    local HasLegacyRules = false
+    for _, SourceRule in ipairs(type(Source.Rules) == "table" and Source.Rules or {}) do
+        if type(SourceRule) == "table" and (SourceRule.Kind == "Specific" or SourceRule.Kind == "TotalGroup" or SourceRule.Kind == "AdditionalGroup" or SourceRule.Kind == "AllSlotsGroup") then
+            HasLegacyRules = true
+            break
+        end
+    end
+    if #Result.PoolStats <= 0 and (Result.PoolPreset == "Offensive" or HasLegacyRules) then
+        for _, StatId in ipairs(AutoForge.GetDefaultPoolStats()) do
+            PushPoolStat(StatId)
+        end
+    end
+    Result.Rules = {}
+    local RequireByStat = {}
+    local PoolRuleAdded = false
+    for _, SourceRule in ipairs(type(Source.Rules) == "table" and Source.Rules or {}) do
+        if type(SourceRule) == "table" then
+            local Kind = SourceRule.Kind
+            local MinCount = math.floor(ClampNumber(SourceRule.MinCount, 1, 10, 1))
+            if Kind == "RequireStat" or Kind == "Specific" then
+                local StatId = AutoForge.NormalizeStatId(SourceRule.StatId)
+                if StatId then
+                    local Existing = RequireByStat[StatId]
+                    if Existing then
+                        Existing.MinCount = math.max(Existing.MinCount, MinCount)
+                    else
+                        local Rule = {Kind = "RequireStat", StatId = StatId, MinCount = MinCount}
+                        RequireByStat[StatId] = Rule
+                        table.insert(Result.Rules, Rule)
+                    end
+                end
+            elseif Kind == "PoolAtLeast" or Kind == "TotalGroup" or Kind == "AdditionalGroup" then
+                if not PoolRuleAdded then
+                    PoolRuleAdded = true
+                    table.insert(Result.Rules, {Kind = "PoolAtLeast", MinCount = MinCount})
+                end
+            elseif Kind == "PoolOnly" or Kind == "AllSlotsGroup" then
+                if not PoolRuleAdded then
+                    PoolRuleAdded = true
+                    table.insert(Result.Rules, {Kind = "PoolOnly"})
+                end
+            end
+        end
+    end
+    if #Result.Rules <= 0 then
+        Result.Rules = {{Kind = "PoolAtLeast", MinCount = 3}}
+    end
+    return Result
+end
+
 function AutoForge.ValidateProfile(Profile)
     if type(Profile) ~= "table" then
         return false, "Invalid profile"
@@ -222,21 +322,29 @@ function AutoForge.ValidateProfile(Profile)
     if type(Profile.Rules) ~= "table" or #Profile.Rules <= 0 then
         return false, "Add at least one rule"
     end
+    local HasPoolRule = false
+    local PoolLookup = AutoForge.BuildPoolLookup(Profile.PoolStats)
     for _, Rule in ipairs(Profile.Rules) do
-        if Rule.Kind == "Specific" then
+        if Rule.Kind == "RequireStat" then
             if type(Rule.StatId) ~= "string" or Rule.StatId == "" then
-                return false, "Specific rule needs a stat"
+                return false, "Require Stat needs a stat"
             end
-        elseif Rule.Kind ~= "TotalGroup" and Rule.Kind ~= "AdditionalGroup" and Rule.Kind ~= "AllSlotsGroup" then
+            if (tonumber(Rule.MinCount) or 0) < 1 or (tonumber(Rule.MinCount) or 0) > 10 then
+                return false, "Minimum must be 1-10"
+            end
+        elseif Rule.Kind == "PoolAtLeast" then
+            HasPoolRule = true
+            if (tonumber(Rule.MinCount) or 0) < 1 or (tonumber(Rule.MinCount) or 0) > 10 then
+                return false, "Minimum must be 1-10"
+            end
+        elseif Rule.Kind == "PoolOnly" then
+            HasPoolRule = true
+        else
             return false, "Invalid rule type"
         end
-        if Rule.Kind ~= "Specific" and Rule.GroupId ~= "Offensive" then
-            return false, "Invalid group"
-        end
-        if Rule.Kind ~= "AllSlotsGroup" and ((tonumber(Rule.MinCount) or 0) < 1 or
-            (tonumber(Rule.MinCount) or 0) > 10) then
-            return false, "Minimum must be 1-10"
-        end
+    end
+    if HasPoolRule and next(PoolLookup) == nil then
+        return false, "Pool needs at least one stat"
     end
     return true
 end
@@ -247,52 +355,11 @@ function AutoForge.NormalizeProfiles(Value)
         return Profiles
     end
     for Index, Source in ipairs(Value) do
-        if type(Source) == "table" then
-            local Profile = {
-                Id = type(Source.Id) == "string" and Source.Id or HttpService:GenerateGUID(false),
-                Name = type(Source.Name) == "string" and Source.Name or ("Profile " .. tostring(Index)),
-                Enabled = Source.Enabled == true,
-                SlotMode = Source.SlotMode == "Exact" and "Exact" or
-                    (Source.SlotMode == "AtLeast" and "AtLeast" or "Any"),
-                SlotCount = math.floor(ClampNumber(Source.SlotCount, 1, 10, 1)),
-                Rules = {}
-            }
-            local SpecificById = {}
-            local GroupKinds = {}
-            for _, SourceRule in ipairs(type(Source.Rules) == "table" and Source.Rules or {}) do
-                if type(SourceRule) == "table" then
-                    local Kind = SourceRule.Kind
-                    local MinCount = math.floor(ClampNumber(SourceRule.MinCount, 1, 10, 1))
-                    if Kind == "Specific" then
-                        local StatId = AutoForge.NormalizeStatId(SourceRule.StatId)
-                        if StatId then
-                            local Existing = SpecificById[StatId]
-                            if Existing then
-                                Existing.MinCount = math.max(Existing.MinCount, MinCount)
-                            else
-                                local Rule = {Kind = Kind, StatId = StatId, MinCount = MinCount}
-                                SpecificById[StatId] = Rule
-                                table.insert(Profile.Rules, Rule)
-                            end
-                        end
-                    elseif Kind == "TotalGroup" or Kind == "AdditionalGroup" or Kind == "AllSlotsGroup" then
-                        local Key = Kind .. ":Offensive"
-                        if not GroupKinds[Key] then
-                            GroupKinds[Key] = true
-                            table.insert(Profile.Rules, {
-                                Kind = Kind,
-                                GroupId = "Offensive",
-                                MinCount = Kind == "AllSlotsGroup" and nil or MinCount
-                            })
-                        end
-                    end
-                end
-            end
-            local Valid, ErrorMessage = AutoForge.ValidateProfile(Profile)
-            Profile.ValidationError = Valid and nil or ErrorMessage
-            Profile.Enabled = Profile.Enabled and Valid
-            table.insert(Profiles, Profile)
-        end
+        local Profile = AutoForge.NormalizeProfile(Source, Index)
+        local Valid, ErrorMessage = AutoForge.ValidateProfile(Profile)
+        Profile.ValidationError = Valid and nil or ErrorMessage
+        Profile.Enabled = Profile.Enabled and Valid
+        table.insert(Profiles, Profile)
     end
     return Profiles
 end
@@ -1441,10 +1508,16 @@ local function GetOreCatalog(ForceRefresh)
     local ForgeUtil = Framework.Modules.ForgeUtil
     local RarityTiers = Framework.Modules.RarityTiers
     local Ores = DataUtil:GetValue(LocalPlayer, {"Ores"}) or {}
+    local ResOres = require(ReplicatedStorage:WaitForChild("Configs"):WaitForChild("ResOres"))
     local Result = {}
+    local Seen = {}
 
-    for OreId, Count in pairs(Ores) do
-        local Def = ForgeUtil:GetDef(OreId)
+    local function AddOre(OreId)
+        if type(OreId) ~= "string" or OreId == "" or Seen[OreId] then
+            return
+        end
+        Seen[OreId] = true
+        local Def = ForgeUtil:GetDef(OreId) or ResOres[OreId]
         if Def then
             local Rarity = tonumber(Def.Rarity) or 0
             local RarityName = tostring(Rarity)
@@ -1454,22 +1527,52 @@ local function GetOreCatalog(ForceRefresh)
             table.insert(Result, {
                 ItemId = OreId,
                 ItemType = "Ore",
-                Count = tonumber(Count) or 0,
+                Count = tonumber(Ores[OreId]) or 0,
                 Rarity = Rarity,
                 RarityName = RarityName,
-                Def = Def
+                Def = Def,
+                DisplayName = GetItemDisplayName(OreId)
             })
         end
     end
 
+    if type(ResOres.__index) == "table" then
+        for _, OreId in ipairs(ResOres.__index) do
+            AddOre(OreId)
+        end
+    end
+    for OreId in pairs(ResOres) do
+        if OreId ~= "__index" then
+            AddOre(OreId)
+        end
+    end
+    for OreId in pairs(Ores) do
+        AddOre(OreId)
+    end
+
     table.sort(Result, function(A, B)
         if A.Rarity == B.Rarity then
-            return A.ItemId < B.ItemId
+            return tostring(A.DisplayName or A.ItemId) < tostring(B.DisplayName or B.ItemId)
         end
         return A.Rarity > B.Rarity
     end)
     CachedOreCatalog = Result
     return CachedOreCatalog
+end
+
+local function GetOreRarityLevels(Catalog)
+    local Levels = {0}
+    local Seen = {[0] = true}
+    for _, Entry in ipairs(Catalog or {}) do
+        if not Seen[Entry.Rarity] then
+            Seen[Entry.Rarity] = true
+            table.insert(Levels, Entry.Rarity)
+        end
+    end
+    table.sort(Levels, function(A, B)
+        return A > B
+    end)
+    return Levels
 end
 
 local function ShouldSellOre(OreId, Def)
@@ -2138,6 +2241,21 @@ function AutoForge.BuildResultSummary(ResultData)
     return Summary
 end
 
+function AutoForge.BuildProfileSummary(Profile)
+    Profile = AutoForge.NormalizeProfile(Profile)
+    local Parts = {Profile.SlotMode == "Any" and "Any Total Slots" or (Profile.SlotMode == "Exact" and ("Exact " .. tostring(Profile.SlotCount) .. " Slots") or ("At Least " .. tostring(Profile.SlotCount) .. " Slots"))}
+    for _, Rule in ipairs(Profile.Rules or {}) do
+        if Rule.Kind == "PoolAtLeast" then
+            table.insert(Parts, "At Least " .. tostring(Rule.MinCount) .. " From Pool")
+        elseif Rule.Kind == "PoolOnly" then
+            table.insert(Parts, "Only From Pool")
+        elseif Rule.Kind == "RequireStat" then
+            table.insert(Parts, "Require " .. GetItemDisplayName(Rule.StatId) .. " >= " .. tostring(Rule.MinCount))
+        end
+    end
+    return table.concat(Parts, " · ")
+end
+
 function AutoForge.MatchProfile(Profile, Summary)
     local Valid = AutoForge.ValidateProfile(Profile)
     if not Valid or type(Summary) ~= "table" then
@@ -2149,26 +2267,26 @@ function AutoForge.MatchProfile(Profile, Summary)
     if Profile.SlotMode == "AtLeast" and Summary.TotalSlots < Profile.SlotCount then
         return false
     end
-
-    local ReservedByGroup = {Offensive = 0}
-    for _, Rule in ipairs(Profile.Rules) do
-        if Rule.Kind == "Specific" then
+    local PoolLookup = AutoForge.BuildPoolLookup(Profile.PoolStats)
+    local PoolCount = 0
+    for _, StatId in ipairs(Summary.Slots or {}) do
+        if PoolLookup[StatId] then
+            PoolCount = PoolCount + 1
+        end
+    end
+    for _, Rule in ipairs(Profile.Rules or {}) do
+        if Rule.Kind == "RequireStat" then
             if (Summary.Counts[Rule.StatId] or 0) < Rule.MinCount then
                 return false
             end
-            if AutoForge.Groups.Offensive[Rule.StatId] then
-                ReservedByGroup.Offensive = ReservedByGroup.Offensive + Rule.MinCount
+        elseif Rule.Kind == "PoolAtLeast" then
+            if PoolCount < Rule.MinCount then
+                return false
             end
-        end
-    end
-    for _, Rule in ipairs(Profile.Rules) do
-        local GroupCount = Summary.GroupCounts[Rule.GroupId or ""] or 0
-        if Rule.Kind == "TotalGroup" and GroupCount < Rule.MinCount then
-            return false
-        elseif Rule.Kind == "AdditionalGroup" and (GroupCount - (ReservedByGroup[Rule.GroupId] or 0)) < Rule.MinCount then
-            return false
-        elseif Rule.Kind == "AllSlotsGroup" and (Summary.TotalSlots <= 0 or GroupCount ~= Summary.TotalSlots) then
-            return false
+        elseif Rule.Kind == "PoolOnly" then
+            if Summary.TotalSlots <= 0 or PoolCount ~= Summary.TotalSlots then
+                return false
+            end
         end
     end
     return true
@@ -2177,8 +2295,9 @@ end
 function AutoForge.FindMatchingProfile(ResultData)
     local Summary = AutoForge.BuildResultSummary(ResultData)
     for _, Profile in ipairs(AutoForge.Profiles) do
-        if Profile.Enabled and AutoForge.MatchProfile(Profile, Summary) then
-            return Profile, Summary
+        local Normalized = AutoForge.NormalizeProfile(Profile)
+        if Normalized.Enabled and AutoForge.MatchProfile(Normalized, Summary) then
+            return Normalized, Summary
         end
     end
     return nil, Summary
@@ -2208,7 +2327,7 @@ function AutoForge.NotifyTargetFound(Profile, ResultData)
     end)
 end
 
-function AutoForge.RunTargetSelfCheck()
+function AutoForge.RunTargetProfileSelfChecks()
     local function Result(Keys)
         local Attr = {}
         for Index, Key in ipairs(Keys) do
@@ -2217,27 +2336,26 @@ function AutoForge.RunTargetSelfCheck()
         return AutoForge.BuildResultSummary({Attr = Attr})
     end
     local Cases = {
-        {Name = "total offensive", Profile = {SlotMode = "Any", SlotCount = 1, Rules = {{Kind = "TotalGroup", GroupId = "Offensive", MinCount = 3}}}, Summary = Result({"AtkBonus", "CHDmgBonus", "CHIRate"}), Expected = true},
-        {Name = "additional offensive", Profile = {SlotMode = "Exact", SlotCount = 4, Rules = {{Kind = "Specific", StatId = "CHDmgBonus", MinCount = 2}, {Kind = "AdditionalGroup", GroupId = "Offensive", MinCount = 2}}}, Summary = Result({"CHDmgBonus", "CHDmgBonus", "AtkBonus", "CHIRate"}), Expected = true},
-        {Name = "crit rate remainder", Profile = {SlotMode = "Exact", SlotCount = 4, Rules = {{Kind = "Specific", StatId = "CHIRate", MinCount = 2}}}, Summary = Result({"CHIRate", "CHIRate", "HpBonus", "DefBonus"}), Expected = true},
-        {Name = "all slots offensive", Profile = {SlotMode = "Exact", SlotCount = 4, Rules = {{Kind = "AllSlotsGroup", GroupId = "Offensive"}}}, Summary = Result({"AtkBonus", "CHDmgBonus", "CHIRate", "SkillDmgBonus"}), Expected = true},
-        {Name = "duplicate normalized stats", Profile = {SlotMode = "Any", SlotCount = 1, Rules = {{Kind = "Specific", StatId = "CHDmgBonus", MinCount = 2}}}, Summary = AutoForge.BuildResultSummary({Attr = {CHDmgBonus_1 = 1, CHDmgBonus_Hell = 1}}), Expected = true},
-        {Name = "unknown offensive stat", Profile = {SlotMode = "Any", SlotCount = 1, Rules = {{Kind = "AllSlotsGroup", GroupId = "Offensive"}}}, Summary = Result({"MysteryAttack"}), Expected = false}
+        {Name = "pool only allows duplicate crit damage", Profile = AutoForge.NormalizeProfile({SlotMode = "Exact", SlotCount = 4, PoolPreset = "Offensive", PoolStats = {"AtkBonus", "CHDmgBonus", "CHIRate", "SkillDmgBonus"}, Rules = {{Kind = "PoolOnly"}}}), Summary = Result({"CHIRate", "CHDmgBonus", "CHDmgBonus", "AtkBonus"}), Expected = true},
+        {Name = "pool at least allows non-pool remainder", Profile = AutoForge.NormalizeProfile({SlotMode = "Any", SlotCount = 1, PoolPreset = "Offensive", PoolStats = {"AtkBonus", "CHDmgBonus", "CHIRate", "SkillDmgBonus"}, Rules = {{Kind = "PoolAtLeast", MinCount = 2}}}), Summary = Result({"SkillDmgBonus", "SkillDmgBonus", "HpBonus"}), Expected = true},
+        {Name = "require stat stacks with pool only", Profile = AutoForge.NormalizeProfile({SlotMode = "Exact", SlotCount = 4, PoolPreset = "Offensive", PoolStats = {"AtkBonus", "CHDmgBonus", "CHIRate", "SkillDmgBonus"}, Rules = {{Kind = "PoolOnly"}, {Kind = "RequireStat", StatId = "CHDmgBonus", MinCount = 2}}}), Summary = Result({"CHDmgBonus", "CHDmgBonus", "CHIRate", "AtkBonus"}), Expected = true},
+        {Name = "pool only rejects non-pool slot", Profile = AutoForge.NormalizeProfile({SlotMode = "Exact", SlotCount = 4, PoolPreset = "Offensive", PoolStats = {"AtkBonus", "CHDmgBonus", "CHIRate", "SkillDmgBonus"}, Rules = {{Kind = "PoolOnly"}}}), Summary = Result({"CHDmgBonus", "CHIRate", "HpBonus", "AtkBonus"}), Expected = false},
+        {Name = "duplicate normalized stats", Profile = AutoForge.NormalizeProfile({SlotMode = "Any", SlotCount = 1, PoolPreset = "Offensive", PoolStats = {"AtkBonus", "CHDmgBonus", "CHIRate", "SkillDmgBonus"}, Rules = {{Kind = "RequireStat", StatId = "CHDmgBonus", MinCount = 2}}}), Summary = AutoForge.BuildResultSummary({Attr = {CHDmgBonus_1 = 1, CHDmgBonus_Hell = 1}}), Expected = true}
     }
     for _, Case in ipairs(Cases) do
         assert(AutoForge.MatchProfile(Case.Profile, Case.Summary) == Case.Expected, "Auto Forge target self-check failed: " .. Case.Name)
     end
     local PreviousProfiles = AutoForge.Profiles
     AutoForge.Profiles = {
-        {Name = "first", Enabled = true, SlotMode = "Any", SlotCount = 1, Rules = {{Kind = "Specific", StatId = "CHIRate", MinCount = 1}}},
-        {Name = "second", Enabled = true, SlotMode = "Any", SlotCount = 1, Rules = {{Kind = "Specific", StatId = "CHIRate", MinCount = 1}}}
+        AutoForge.NormalizeProfile({Name = "first", Enabled = true, SlotMode = "Exact", SlotCount = 4, PoolPreset = "Offensive", PoolStats = {"AtkBonus", "CHDmgBonus", "CHIRate", "SkillDmgBonus"}, Rules = {{Kind = "PoolOnly"}, {Kind = "RequireStat", StatId = "CHDmgBonus", MinCount = 2}}}),
+        AutoForge.NormalizeProfile({Name = "second", Enabled = true, SlotMode = "Any", SlotCount = 1, PoolPreset = "Offensive", PoolStats = {"AtkBonus", "CHDmgBonus", "CHIRate", "SkillDmgBonus"}, Rules = {{Kind = "PoolAtLeast", MinCount = 2}}})
     }
-    local Match = AutoForge.FindMatchingProfile({Attr = {CHIRate_1 = 1}})
+    local Match = AutoForge.FindMatchingProfile({Attr = {CHDmgBonus_1 = 1, CHDmgBonus_2 = 1, CHIRate_3 = 1, AtkBonus_4 = 1}})
     assert(Match and Match.Name == "first", "Auto Forge target self-check failed: first profile wins")
     AutoForge.Profiles = PreviousProfiles
 end
 
-AutoForge.RunTargetSelfCheck()
+AutoForge.RunTargetProfileSelfChecks()
 
 local function GetOreBackpackUsage()
     local Framework = GetFrameworkModule()
@@ -4600,7 +4718,7 @@ function AutoForge.BuildMenuPage(Context)
     local SearchBox = Instance.new("TextBox")
     SearchBox.Name = "AutoForgeOreSearch"
     SearchBox.Position = UDim2.fromOffset(0, 138)
-    SearchBox.Size = UDim2.new(1, -66, 0, 28)
+    SearchBox.Size = UDim2.new(1, -166, 0, 28)
     SearchBox.BackgroundColor3 = Theme.Surface
     SearchBox.BorderSizePixel = 0
     SearchBox.ClearTextOnFocus = false
@@ -4614,10 +4732,37 @@ function AutoForge.BuildMenuPage(Context)
     Context.AddCorner(SearchBox, 6)
     Context.AddStroke(SearchBox)
 
+    local ForgeRarityFilterButton = Context.CreateButton(Page, "RARITY: All ▼")
+    ForgeRarityFilterButton.Name = "AutoForgeRarityFilter"
+    ForgeRarityFilterButton.Position = UDim2.new(1, -162, 0, 138)
+    ForgeRarityFilterButton.Size = UDim2.fromOffset(96, 28)
+    ForgeRarityFilterButton.TextSize = 10
+
     local RefreshButton = Context.CreateButton(Page, "REFRESH")
     RefreshButton.Position = UDim2.new(1, -60, 0, 138)
     RefreshButton.Size = UDim2.fromOffset(60, 28)
     RefreshButton.TextSize = 10
+
+    local ForgeRarityOptions = Instance.new("Frame")
+    ForgeRarityOptions.Name = "AutoForgeRarityOptions"
+    ForgeRarityOptions.Position = UDim2.new(1, -162, 0, 170)
+    ForgeRarityOptions.Size = UDim2.fromOffset(96, 10)
+    ForgeRarityOptions.BackgroundColor3 = Theme.Panel
+    ForgeRarityOptions.BorderSizePixel = 0
+    ForgeRarityOptions.Visible = false
+    ForgeRarityOptions.ZIndex = 20
+    ForgeRarityOptions.Parent = Page
+    Context.AddCorner(ForgeRarityOptions, 6)
+    Context.AddStroke(ForgeRarityOptions, Theme.Accent)
+    local ForgeRarityOptionsPadding = Instance.new("UIPadding")
+    ForgeRarityOptionsPadding.PaddingTop = UDim.new(0, 5)
+    ForgeRarityOptionsPadding.PaddingBottom = UDim.new(0, 5)
+    ForgeRarityOptionsPadding.PaddingLeft = UDim.new(0, 5)
+    ForgeRarityOptionsPadding.PaddingRight = UDim.new(0, 5)
+    ForgeRarityOptionsPadding.Parent = ForgeRarityOptions
+    local ForgeRarityOptionsLayout = Instance.new("UIListLayout")
+    ForgeRarityOptionsLayout.Padding = UDim.new(0, 4)
+    ForgeRarityOptionsLayout.Parent = ForgeRarityOptions
 
     local OreList = Instance.new("ScrollingFrame")
     OreList.Name = "AutoForgeOreList"
@@ -4640,10 +4785,50 @@ function AutoForge.BuildMenuPage(Context)
         Rows = {}
     }
 
+    local function ForgeRarityFilterName(Level, Catalog)
+        if Level <= 0 then
+            return "All"
+        end
+        for _, Entry in ipairs(Catalog or GetOreCatalog()) do
+            if Entry.Rarity == Level then
+                return tostring(Entry.RarityName) .. " Lv." .. tostring(Level)
+            end
+        end
+        return "Lv." .. tostring(Level)
+    end
+
+    local function RefreshForgeRarityFilterButton(Catalog)
+        ForgeRarityFilterButton.Text = "RARITY: " .. ForgeRarityFilterName(AutoForgeRarityFilter, Catalog) .. " ▼"
+    end
+
+    local function BuildForgeRarityOptions(Catalog)
+        for _, Child in ipairs(ForgeRarityOptions:GetChildren()) do
+            if Child:IsA("GuiButton") then
+                Child:Destroy()
+            end
+        end
+        local Levels = GetOreRarityLevels(Catalog)
+        for _, Level in ipairs(Levels) do
+            local Option = Context.CreateButton(ForgeRarityOptions, ForgeRarityFilterName(Level, Catalog))
+            Option.Size = UDim2.new(1, 0, 0, 26)
+            Option.ZIndex = 21
+            Option.Activated:Connect(function()
+                AutoForgeRarityFilter = Level
+                ForgeRarityOptions.Visible = false
+                RefreshForgeRarityFilterButton(Catalog)
+                FilterRows()
+            end)
+        end
+        ForgeRarityOptions.Size = UDim2.fromOffset(96, #Levels * 30 + 10)
+        RefreshForgeRarityFilterButton(Catalog)
+    end
+
     local function FilterRows()
         local Query = string.lower(SearchBox.Text or "")
         for _, RowState in ipairs(PageState.Rows) do
-            RowState.Gui.Visible = Query == "" or string.find(RowState.SearchText, Query, 1, true) ~= nil
+            local MatchQuery = Query == "" or string.find(RowState.SearchText, Query, 1, true) ~= nil
+            local MatchRarity = AutoForgeRarityFilter <= 0 or RowState.Rarity == AutoForgeRarityFilter
+            RowState.Gui.Visible = MatchQuery and MatchRarity
         end
     end
 
@@ -4696,7 +4881,8 @@ function AutoForge.BuildMenuPage(Context)
 
     local function BuildRows()
         ClearRows()
-        for _, Entry in ipairs(GetOreCatalog(true)) do
+        local Catalog = GetOreCatalog(true)
+        for _, Entry in ipairs(Catalog) do
             local DisplayName = GetItemDisplayName(Entry.ItemId)
             local Row = Context.CreateButton(OreList, "")
             Row.Name = "ForgeOre_" .. Entry.ItemId
@@ -4729,7 +4915,8 @@ function AutoForge.BuildMenuPage(Context)
                 Minus = Minus,
                 Selected = Selected,
                 Plus = Plus,
-                SearchText = string.lower(DisplayName .. " " .. Entry.ItemId)
+                SearchText = string.lower(DisplayName .. " " .. Entry.ItemId .. " " .. tostring(Entry.RarityName) .. " " .. tostring(Entry.Rarity)),
+                Rarity = Entry.Rarity
             }
             table.insert(PageState.Rows, RowState)
 
@@ -4757,6 +4944,7 @@ function AutoForge.BuildMenuPage(Context)
                 end
             end)
         end
+        BuildForgeRarityOptions(Catalog)
         FilterRows()
         RefreshSummary()
     end
@@ -4804,13 +4992,19 @@ function AutoForge.BuildMenuPage(Context)
         RefreshSummary()
     end)
     SearchBox:GetPropertyChangedSignal("Text"):Connect(FilterRows)
+    ForgeRarityFilterButton.Activated:Connect(function()
+        RecipeOptions.Visible = false
+        ForgeRarityOptions.Visible = not ForgeRarityOptions.Visible
+    end)
     RefreshButton.Activated:Connect(function()
         RecipeOptions.Visible = false
+        ForgeRarityOptions.Visible = false
         BuildRows()
     end)
 
     function PageState.Close()
         RecipeOptions.Visible = false
+        ForgeRarityOptions.Visible = false
     end
     PageState.Refresh = RefreshSummary
     AutoForge.State.Refresh = RefreshSummary
@@ -4835,11 +5029,14 @@ function AutoForge.BuildTargetsPage(Context)
     local AddProfileButton = Context.CreateButton(Page, "ADD PROFILE")
     AddProfileButton.Position = UDim2.fromOffset(0, 68)
     AddProfileButton.Size = UDim2.new(1, 0, 0, 30)
+    local OrderHint = Context.CreateText(Page, "Enabled profiles are checked top-to-bottom. First match wins.", 9, Theme.Muted)
+    OrderHint.Position = UDim2.fromOffset(0, 102)
+    OrderHint.Size = UDim2.new(1, 0, 0, 18)
 
     local ProfileList = Instance.new("ScrollingFrame")
     ProfileList.Name = "TargetProfileList"
-    ProfileList.Position = UDim2.fromOffset(0, 104)
-    ProfileList.Size = UDim2.new(1, 0, 1, -104)
+    ProfileList.Position = UDim2.fromOffset(0, 124)
+    ProfileList.Size = UDim2.new(1, 0, 1, -124)
     ProfileList.BackgroundColor3 = Theme.Background
     ProfileList.BorderSizePixel = 0
     ProfileList.ScrollBarThickness = 3
@@ -4906,11 +5103,40 @@ function AutoForge.BuildTargetsPage(Context)
     SlotCountInput.Parent = Editor
     Context.AddCorner(SlotCountInput, 6)
     Context.AddStroke(SlotCountInput)
+    local PoolPresetButton = Context.CreateButton(Editor, "POOL PRESET: Offensive ▼")
+    PoolPresetButton.Name = "PoolPresetDropdown"
+    PoolPresetButton.Position = UDim2.fromOffset(0, 100)
+    PoolPresetButton.Size = UDim2.new(1, 0, 0, 30)
+    PoolPresetButton.ZIndex = 51
+    local PoolHint = Context.CreateText(Editor, "Preset fills defaults. You can still edit this profile.", 9, Theme.Muted)
+    PoolHint.Position = UDim2.fromOffset(4, 132)
+    PoolHint.Size = UDim2.new(1, -8, 0, 16)
+    PoolHint.ZIndex = 51
+    local PoolTitle = Context.CreateText(Editor, "POOL STATS", 10)
+    PoolTitle.Position = UDim2.fromOffset(4, 148)
+    PoolTitle.Size = UDim2.new(1, -8, 0, 18)
+    PoolTitle.ZIndex = 51
+    local PoolList = Instance.new("ScrollingFrame")
+    PoolList.Name = "PoolStatsList"
+    PoolList.Position = UDim2.fromOffset(0, 168)
+    PoolList.Size = UDim2.new(1, 0, 0, 118)
+    PoolList.BackgroundColor3 = Theme.Background
+    PoolList.BorderSizePixel = 0
+    PoolList.ScrollBarThickness = 3
+    PoolList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    PoolList.CanvasSize = UDim2.fromOffset(0, 0)
+    PoolList.ZIndex = 51
+    PoolList.Parent = Editor
+    Context.AddCorner(PoolList, 6)
+    Context.AddStroke(PoolList)
+    local PoolListLayout = Instance.new("UIListLayout")
+    PoolListLayout.Padding = UDim.new(0, 4)
+    PoolListLayout.Parent = PoolList
 
     local RulesList = Instance.new("ScrollingFrame")
     RulesList.Name = "TargetRuleList"
-    RulesList.Position = UDim2.fromOffset(0, 102)
-    RulesList.Size = UDim2.new(1, 0, 1, -176)
+    RulesList.Position = UDim2.fromOffset(0, 292)
+    RulesList.Size = UDim2.new(1, 0, 1, -366)
     RulesList.BackgroundColor3 = Theme.Background
     RulesList.BorderSizePixel = 0
     RulesList.ScrollBarThickness = 3
@@ -4931,7 +5157,7 @@ function AutoForge.BuildTargetsPage(Context)
     RulesLayout.Parent = RulesList
 
     local ErrorLabel = Context.CreateText(Editor, "", 10, Theme.Keep)
-    ErrorLabel.Position = UDim2.new(0, 4, 1, -70)
+    ErrorLabel.Position = UDim2.new(0, 4, 1, -74)
     ErrorLabel.Size = UDim2.new(1, -8, 0, 18)
     ErrorLabel.ZIndex = 51
     local AddRuleButton = Context.CreateButton(Editor, "ADD RULE")
@@ -4987,7 +5213,10 @@ function AutoForge.BuildTargetsPage(Context)
 
     local function CopyProfile(Profile)
         local Copy = {Id = Profile.Id, Name = Profile.Name, Enabled = Profile.Enabled, SlotMode = Profile.SlotMode,
-            SlotCount = Profile.SlotCount, Rules = {}}
+            SlotCount = Profile.SlotCount, PoolPreset = Profile.PoolPreset, PoolStats = {}, Rules = {}}
+        for _, StatId in ipairs(Profile.PoolStats or {}) do
+            table.insert(Copy.PoolStats, StatId)
+        end
         for _, Rule in ipairs(Profile.Rules or {}) do
             table.insert(Copy.Rules, CopyMap(Rule))
         end
@@ -5014,17 +5243,7 @@ function AutoForge.BuildTargetsPage(Context)
     end
 
     local function ProfileSummary(Profile)
-        local Parts = {Profile.SlotMode == "Any" and "Any slots" or (Profile.SlotMode .. " " .. tostring(Profile.SlotCount))}
-        for _, Rule in ipairs(Profile.Rules or {}) do
-            if Rule.Kind == "Specific" then
-                table.insert(Parts, tostring(Rule.StatId) .. ">=" .. tostring(Rule.MinCount))
-            elseif Rule.Kind == "AllSlotsGroup" then
-                table.insert(Parts, "All Offensive")
-            else
-                table.insert(Parts, Rule.Kind .. ">=" .. tostring(Rule.MinCount))
-            end
-        end
-        return table.concat(Parts, " · ")
+        return AutoForge.BuildProfileSummary(Profile)
     end
 
     local function OpenEditor(Profile, Index)
@@ -5040,9 +5259,40 @@ function AutoForge.BuildTargetsPage(Context)
             return
         end
         NameInput.Text = Draft.Name or ""
-        SlotModeButton.Text = "SLOTS: " .. tostring(Draft.SlotMode) .. " ▼"
+        SlotModeButton.Text = "TOTAL SLOTS: " .. (Draft.SlotMode == "Any" and "Any Total Slots" or (Draft.SlotMode == "Exact" and "Exact N Slots" or "At Least N Slots")) .. " ▼"
         SlotCountInput.Text = tostring(Draft.SlotCount or 1)
         SlotCountInput.Visible = Draft.SlotMode ~= "Any"
+        PoolPresetButton.Text = "POOL PRESET: " .. tostring(Draft.PoolPreset or "Offensive") .. " ▼"
+        for _, Child in ipairs(PoolList:GetChildren()) do
+            if Child:IsA("GuiButton") then
+                Child:Destroy()
+            end
+        end
+        local PoolLookup = AutoForge.BuildPoolLookup(Draft.PoolStats)
+        for _, Stat in ipairs(AutoForge.BuildStatCatalog()) do
+            local Checked = PoolLookup[Stat.StatId] == true
+            local PoolButton = Context.CreateButton(PoolList, (Checked and "[x] " or "[ ] ") .. Stat.DisplayName .. " (" .. Stat.StatId .. ")")
+            PoolButton.Size = UDim2.new(1, 0, 0, 24)
+            PoolButton.ZIndex = 52
+            PoolButton.Activated:Connect(function()
+                local NewPool = {}
+                local Seen = {}
+                local Removed = false
+                for _, StatId in ipairs(Draft.PoolStats or {}) do
+                    if StatId == Stat.StatId and not Removed then
+                        Removed = true
+                    elseif not Seen[StatId] then
+                        Seen[StatId] = true
+                        table.insert(NewPool, StatId)
+                    end
+                end
+                if not Removed then
+                    table.insert(NewPool, Stat.StatId)
+                end
+                Draft.PoolStats = NewPool
+                RefreshEditor()
+            end)
+        end
         for _, Child in ipairs(RulesList:GetChildren()) do
             if Child:IsA("Frame") then
                 Child:Destroy()
@@ -5056,13 +5306,13 @@ function AutoForge.BuildTargetsPage(Context)
             Row.ZIndex = 52
             Row.Parent = RulesList
             Context.AddCorner(Row, 5)
-            local KindButton = Context.CreateButton(Row, Rule.Kind)
+            local KindButton = Context.CreateButton(Row, Rule.Kind == "PoolAtLeast" and "At Least N From Pool" or (Rule.Kind == "PoolOnly" and "Only From Pool" or "Require Stat"))
             KindButton.Name = "RuleTypeDropdown"
             KindButton.Position = UDim2.fromOffset(4, 4)
             KindButton.Size = UDim2.new(0.48, -6, 0, 26)
             KindButton.ZIndex = 53
-            local ValueButton = Context.CreateButton(Row, Rule.Kind == "Specific" and tostring(Rule.StatId) or "Offensive")
-            ValueButton.Name = Rule.Kind == "Specific" and "SpecificStatDropdown" or "GroupDropdown"
+            local ValueButton = Context.CreateButton(Row, Rule.Kind == "RequireStat" and tostring(Rule.StatId or "CHDmgBonus") or "Pool")
+            ValueButton.Name = Rule.Kind == "RequireStat" and "SpecificStatDropdown" or "GroupDropdown"
             ValueButton.Position = UDim2.new(0.48, 2, 0, 4)
             ValueButton.Size = UDim2.new(0.52, -36, 0, 26)
             ValueButton.ZIndex = 53
@@ -5077,35 +5327,34 @@ function AutoForge.BuildTargetsPage(Context)
             MinInput.BackgroundColor3 = Theme.Background
             MinInput.BorderSizePixel = 0
             MinInput.ClearTextOnFocus = false
-            MinInput.Text = Rule.Kind == "AllSlotsGroup" and "ALL SLOTS" or tostring(Rule.MinCount or 1)
+            MinInput.Text = Rule.Kind == "PoolOnly" and "ONLY FROM POOL" or tostring(Rule.MinCount or 1)
             MinInput.TextColor3 = Theme.Text
             MinInput.Font = Enum.Font.Gotham
             MinInput.TextSize = 11
-            MinInput.TextEditable = Rule.Kind ~= "AllSlotsGroup"
+            MinInput.TextEditable = Rule.Kind ~= "PoolOnly"
             MinInput.ZIndex = 53
             MinInput.Parent = Row
             Context.AddCorner(MinInput, 5)
             KindButton.Activated:Connect(function()
                 OpenPicker("RULE TYPE", {
-                    {Label = "Specific", Value = "Specific"}, {Label = "Total Offensive", Value = "TotalGroup"},
-                    {Label = "Additional Offensive", Value = "AdditionalGroup"}, {Label = "All Slots Offensive", Value = "AllSlotsGroup"}
+                    {Label = "At Least N From Pool", Value = "PoolAtLeast"}, {Label = "Only From Pool", Value = "PoolOnly"},
+                    {Label = "Require Stat", Value = "RequireStat"}
                 }, function(Value)
                     Rule.Kind = Value
-                    Rule.GroupId = Value == "Specific" and nil or "Offensive"
-                    Rule.StatId = Value == "Specific" and (Rule.StatId or "CHDmgBonus") or nil
-                    Rule.MinCount = Value == "AllSlotsGroup" and nil or (Rule.MinCount or 1)
+                    Rule.StatId = Value == "RequireStat" and (Rule.StatId or "CHDmgBonus") or nil
+                    Rule.MinCount = Value == "PoolOnly" and nil or (Rule.MinCount or 1)
                     RefreshEditor()
                 end)
             end)
             ValueButton.Activated:Connect(function()
-                if Rule.Kind ~= "Specific" then
+                if Rule.Kind ~= "RequireStat" then
                     return
                 end
                 local Entries = {}
                 for _, Stat in ipairs(AutoForge.BuildStatCatalog()) do
                     table.insert(Entries, {Label = Stat.DisplayName .. " (" .. Stat.StatId .. ")", Value = Stat.StatId})
                 end
-                OpenPicker("SPECIFIC STAT", Entries, function(Value)
+                OpenPicker("REQUIRE STAT", Entries, function(Value)
                     Rule.StatId = Value
                     RefreshEditor()
                 end)
@@ -5115,7 +5364,7 @@ function AutoForge.BuildTargetsPage(Context)
                 RefreshEditor()
             end)
             MinInput.FocusLost:Connect(function()
-                if Rule.Kind ~= "AllSlotsGroup" then
+                if Rule.Kind ~= "PoolOnly" then
                     Rule.MinCount = math.floor(ClampNumber(MinInput.Text, 1, 10, 1))
                     RefreshEditor()
                 end
@@ -5199,13 +5448,19 @@ function AutoForge.BuildTargetsPage(Context)
         RefreshProfiles()
     end)
     AddProfileButton.Activated:Connect(function()
-        OpenEditor({Id = HttpService:GenerateGUID(false), Name = "New Target", Enabled = false, SlotMode = "Any",
-            SlotCount = 1, Rules = {{Kind = "Specific", StatId = "CHDmgBonus", MinCount = 2}}}, nil)
+        OpenEditor(AutoForge.CreateDefaultProfile(#AutoForge.Profiles + 1), nil)
     end)
     SlotModeButton.Activated:Connect(function()
-        OpenPicker("SLOT MODE", {{Label = "Any", Value = "Any"}, {Label = "Exact", Value = "Exact"},
-            {Label = "At Least", Value = "AtLeast"}}, function(Value)
+        OpenPicker("TOTAL SLOTS", {{Label = "Any Total Slots", Value = "Any"}, {Label = "Exact N Slots", Value = "Exact"},
+            {Label = "At Least N Slots", Value = "AtLeast"}}, function(Value)
             Draft.SlotMode = Value
+            RefreshEditor()
+        end)
+    end)
+    PoolPresetButton.Activated:Connect(function()
+        OpenPicker("POOL PRESET", {{Label = "Offensive", Value = "Offensive"}, {Label = "Custom Empty", Value = "Custom"}}, function(Value)
+            Draft.PoolPreset = Value
+            Draft.PoolStats = Value == "Offensive" and AutoForge.GetDefaultPoolStats() or {}
             RefreshEditor()
         end)
     end)
@@ -5214,7 +5469,7 @@ function AutoForge.BuildTargetsPage(Context)
         RefreshEditor()
     end)
     AddRuleButton.Activated:Connect(function()
-        table.insert(Draft.Rules, {Kind = "Specific", StatId = "CHDmgBonus", MinCount = 1})
+        table.insert(Draft.Rules, {Kind = "PoolAtLeast", MinCount = 3})
         RefreshEditor()
     end)
     SaveButton.Activated:Connect(function()

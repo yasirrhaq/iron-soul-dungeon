@@ -111,7 +111,9 @@ Brief behavior notes for `holygrail/script-v6-full-run-dg.lua`.
 - Auto Forge defaults off and consumes nothing until user enables it and presses `START FORGE` in lobby.
 - Direct flow calls `DropOres`, submits server QTE progress with fresh UUID values and rating `15`, and finishes without requiring the forge proximity interaction.
 - Normal mode accepts each result automatically without opening the native result screen. Target mode counts normalized attribute slots and evaluates enabled profiles in displayed order.
-- Profiles support exact/at-least/any slot counts, specific-stat minimums, total Offensive, additional Offensive after reserving specific slots, and all-slots Offensive. Offensive IDs are `AtkBonus`, `CHDmgBonus`, `CHIRate`, and `SkillDmgBonus`.
+- Profiles now use human-readable rules: `Any Total Slots`, `Exact N Slots`, `At Least N Slots`, `At Least N From Pool`, `Only From Pool`, and optional `Require Stat >= N`.
+- Each profile owns its own editable stat pool. `Offensive` is starter preset content, not locked global meaning. Offensive defaults are `AtkBonus`, `CHDmgBonus`, `CHIRate`, and `SkillDmgBonus`.
+- Enabled profiles are checked top-to-bottom; first match wins.
 - Matching results are accepted, stop the runner, send a notification, and remain in a Bugon target-found modal until closed. Non-matches are accepted for later sale or deleted according to `AUTO DELETE NON-MATCH`.
 - Equipment storage is checked before every attempt; a full bag stops with `STOPPED - EQUIPMENT BAG FULL` before another `DropOres` request.
 - Turning Auto Forge off during a batch finishes current craft, then stops before next craft. Auto-sell and rejoin recovery cannot overlap an active forge batch.
