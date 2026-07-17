@@ -1569,6 +1569,9 @@ local function GetOreRarityLevels(Catalog)
         end
     end
     table.sort(Levels, function(A, B)
+        if A == B then
+            return false
+        end
         if A == 0 then
             return true
         end
@@ -6709,6 +6712,9 @@ local function BuildRarityOptions(Catalog)
         end
     end
     table.sort(Levels, function(A, B)
+        if A == B then
+            return false
+        end
         if A == 0 then
             return true
         end
