@@ -44,9 +44,9 @@ The game result screen normalizes attribute keys with `string.split(AttributeKey
 Examples:
 
 ```text
-CritDamage_1 -> CritDamage
-CritDamage_2 -> CritDamage
-CritDamage_Hell -> CritDamage
+CHDmgBonus_1 -> CHDmgBonus
+CHDmgBonus_2 -> CHDmgBonus
+CHDmgBonus_Hell -> CHDmgBonus
 ```
 
 Each original `Attr` entry remains one slot. Normalization changes the stat identifier used for counting but never merges slots before counting them.
@@ -78,7 +78,7 @@ Each profile is persisted with this logical shape:
     Rules = {
         {
             Kind = "Specific",
-            StatId = "CritDamage",
+            StatId = "CHDmgBonus",
             MinCount = 2
         },
         {
