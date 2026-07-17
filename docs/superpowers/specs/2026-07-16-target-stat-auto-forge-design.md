@@ -349,7 +349,7 @@ Required runtime statuses include:
 - Fetch a fresh QTE UUID for every submitted QTE stage.
 - Never reuse a forge result after acknowledgement.
 - Never issue both Accept and Delete for one result.
-- Time out remote and replication waits with an actionable status.
+- Use the authoritative `ForgeFinish` return for matching and acknowledge it directly with `ForgeResult`; do not wait for native Forge UI replication.
 
 ## Verification
 

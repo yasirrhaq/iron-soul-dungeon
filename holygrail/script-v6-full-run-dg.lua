@@ -2646,30 +2646,6 @@ function AutoForge.WaitForQTEProgress(ForgeUtil, ExpectedTimes, PreviousUUID, Ti
     return nil
 end
 
-function AutoForge.WaitForResult(ForgeUtil, Timeout)
-    local Deadline = os.clock() + Timeout
-    repeat
-        local Success, ResultData = pcall(ForgeUtil.GetResult, ForgeUtil, LocalPlayer)
-        if Success and type(ResultData) == "table" and ResultData.ID then
-            return ResultData
-        end
-        task.wait(0.1)
-    until os.clock() >= Deadline
-    return nil
-end
-
-function AutoForge.WaitForResultClear(ForgeUtil, Timeout)
-    local Deadline = os.clock() + Timeout
-    repeat
-        local Success, ForgeData = pcall(ForgeUtil.GetForgeData, ForgeUtil, LocalPlayer)
-        if Success and (type(ForgeData) ~= "table" or ForgeData.ForgeState == nil) then
-            return true
-        end
-        task.wait(0.1)
-    until os.clock() >= Deadline
-    return false
-end
-
 function AutoForge.RunCraft(Recipe, Composition, AttemptIndex)
     local Framework = GetFrameworkModule()
     local ForgeUtil = Framework.Modules.ForgeUtil
@@ -2710,11 +2686,7 @@ function AutoForge.RunCraft(Recipe, Composition, AttemptIndex)
     if Finished ~= true or type(ResultData) ~= "table" or not ResultData.ID then
         error("ForgeFinish rejected")
     end
-    local SyncedResult = AutoForge.WaitForResult(ForgeUtil, 5.0)
-    if not SyncedResult then
-        error("forge result replication timeout")
-    end
-    local ResultCopy = AutoForge.CopyResultData(SyncedResult)
+    local ResultCopy = AutoForge.CopyResultData(ResultData)
     local MatchedProfile = nil
     local Summary = nil
     local AcceptResult = true
@@ -2741,9 +2713,6 @@ function AutoForge.RunCraft(Recipe, Composition, AttemptIndex)
         ForgeRemote:InvokeServer("ForgeResult", true)
     else
         ForgeRemote:InvokeServer("ForgeResult", false)
-    end
-    if not AutoForge.WaitForResultClear(ForgeUtil, 5.0) then
-        error("forge result acknowledgement timeout")
     end
 
     if MatchedProfile then
