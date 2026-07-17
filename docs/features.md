@@ -104,13 +104,16 @@ Brief behavior notes for `holygrail/script-v6-full-run-dg.lua`.
 
 ## Auto Forge
 
-- Utility `FORGE` page selects weapon or armor recipe, exact per-craft ore composition, and requested craft count.
+- Main `FORGE` tab contains separate `CRAFT` and `TARGETS` views. Craft selects weapon or armor recipe, exact per-craft ore composition, and maximum attempt count.
 - Weapon recipes include Sword, Staff, Axe/Hammer, Fist, Common Fist Relic, and Luxury Fist Relic variants; armor recipes include Light Helmet, Light Armor, Heavy Helmet, and Heavy Armor.
 - Relic counts come from Crystals inventory through `KeyString.EquipmentUtil.Crystals`; Common and Luxury Fist recipes consume `FistRelic_1` and `FistRelic_2` respectively.
 - Batch maximum uses the lowest `floor(owned/per-craft)` ore limit and optional relic count. Requested count displays an automatic clamp when inventory supports fewer crafts.
 - Auto Forge defaults off and consumes nothing until user enables it and presses `START FORGE` in lobby.
 - Direct flow calls `DropOres`, submits server QTE progress with fresh UUID values and rating `15`, and finishes without requiring the forge proximity interaction.
-- Each completed craft opens the native result screen and pauses the batch until the player selects Accept or Delete; results are never acknowledged before they are shown.
+- Normal mode accepts each result automatically without opening the native result screen. Target mode counts normalized attribute slots and evaluates enabled profiles in displayed order.
+- Profiles support exact/at-least/any slot counts, specific-stat minimums, total Offensive, additional Offensive after reserving specific slots, and all-slots Offensive. Offensive IDs are `AtkBonus`, `CHDmgBonus`, `CHIRate`, and `SkillDmgBonus`.
+- Matching results are accepted, stop the runner, send a notification, and remain in a Bugon target-found modal until closed. Non-matches are accepted for later sale or deleted according to `AUTO DELETE NON-MATCH`.
+- Equipment storage is checked before every attempt; a full bag stops with `STOPPED - EQUIPMENT BAG FULL` before another `DropOres` request.
 - Turning Auto Forge off during a batch finishes current craft, then stops before next craft. Auto-sell and rejoin recovery cannot overlap an active forge batch.
 
 ## Auto Potion

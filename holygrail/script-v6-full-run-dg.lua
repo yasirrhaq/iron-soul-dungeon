@@ -61,6 +61,21 @@ local AutoForge = {
     RecipeId = nil,
     Composition = nil,
     RequestedCrafts = nil,
+    TargetMode = false,
+    AutoDeleteNonMatch = false,
+    Profiles = {},
+    StatCatalog = {},
+    DiscoveredStats = {},
+    Groups = {
+        Offensive = {
+            AtkBonus = true,
+            CHDmgBonus = true,
+            CHIRate = true,
+            SkillDmgBonus = true
+        }
+    },
+    TargetFoundData = nil,
+    TargetRefresh = nil,
     KeyString = nil,
     State = {
         Running = false,
@@ -119,6 +134,9 @@ local Config = {
     AutoForgeRecipeId = "WeaponSword",
     AutoForgeOreComposition = {},
     AutoForgeRequestedCrafts = 1,
+    AutoForgeTargetMode = false,
+    AutoForgeAutoDeleteNonMatch = false,
+    AutoForgeProfiles = {},
     SellMaxRarity = 5,
     AutoStartWorldId = "World3",
     AutoStartDifficulty = 10,
@@ -184,6 +202,101 @@ function AutoForge.NormalizeComposition(Value)
     return Result
 end
 
+function AutoForge.NormalizeStatId(AttributeKey)
+    if type(AttributeKey) ~= "string" or AttributeKey == "" then
+        return nil
+    end
+    return string.split(AttributeKey, "_")[1]
+end
+
+function AutoForge.ValidateProfile(Profile)
+    if type(Profile) ~= "table" then
+        return false, "Invalid profile"
+    end
+    if Profile.SlotMode ~= "Any" and Profile.SlotMode ~= "Exact" and Profile.SlotMode ~= "AtLeast" then
+        return false, "Invalid slot mode"
+    end
+    if Profile.SlotMode ~= "Any" and (tonumber(Profile.SlotCount) or 0) < 1 then
+        return false, "Slot count must be positive"
+    end
+    if type(Profile.Rules) ~= "table" or #Profile.Rules <= 0 then
+        return false, "Add at least one rule"
+    end
+    for _, Rule in ipairs(Profile.Rules) do
+        if Rule.Kind == "Specific" then
+            if type(Rule.StatId) ~= "string" or Rule.StatId == "" then
+                return false, "Specific rule needs a stat"
+            end
+        elseif Rule.Kind ~= "TotalGroup" and Rule.Kind ~= "AdditionalGroup" and Rule.Kind ~= "AllSlotsGroup" then
+            return false, "Invalid rule type"
+        end
+        if Rule.Kind ~= "Specific" and Rule.GroupId ~= "Offensive" then
+            return false, "Invalid group"
+        end
+        if Rule.Kind ~= "AllSlotsGroup" and ((tonumber(Rule.MinCount) or 0) < 1 or
+            (tonumber(Rule.MinCount) or 0) > 10) then
+            return false, "Minimum must be 1-10"
+        end
+    end
+    return true
+end
+
+function AutoForge.NormalizeProfiles(Value)
+    local Profiles = {}
+    if type(Value) ~= "table" then
+        return Profiles
+    end
+    for Index, Source in ipairs(Value) do
+        if type(Source) == "table" then
+            local Profile = {
+                Id = type(Source.Id) == "string" and Source.Id or HttpService:GenerateGUID(false),
+                Name = type(Source.Name) == "string" and Source.Name or ("Profile " .. tostring(Index)),
+                Enabled = Source.Enabled == true,
+                SlotMode = Source.SlotMode == "Exact" and "Exact" or
+                    (Source.SlotMode == "AtLeast" and "AtLeast" or "Any"),
+                SlotCount = math.floor(ClampNumber(Source.SlotCount, 1, 10, 1)),
+                Rules = {}
+            }
+            local SpecificById = {}
+            local GroupKinds = {}
+            for _, SourceRule in ipairs(type(Source.Rules) == "table" and Source.Rules or {}) do
+                if type(SourceRule) == "table" then
+                    local Kind = SourceRule.Kind
+                    local MinCount = math.floor(ClampNumber(SourceRule.MinCount, 1, 10, 1))
+                    if Kind == "Specific" then
+                        local StatId = AutoForge.NormalizeStatId(SourceRule.StatId)
+                        if StatId then
+                            local Existing = SpecificById[StatId]
+                            if Existing then
+                                Existing.MinCount = math.max(Existing.MinCount, MinCount)
+                            else
+                                local Rule = {Kind = Kind, StatId = StatId, MinCount = MinCount}
+                                SpecificById[StatId] = Rule
+                                table.insert(Profile.Rules, Rule)
+                            end
+                        end
+                    elseif Kind == "TotalGroup" or Kind == "AdditionalGroup" or Kind == "AllSlotsGroup" then
+                        local Key = Kind .. ":Offensive"
+                        if not GroupKinds[Key] then
+                            GroupKinds[Key] = true
+                            table.insert(Profile.Rules, {
+                                Kind = Kind,
+                                GroupId = "Offensive",
+                                MinCount = Kind == "AllSlotsGroup" and nil or MinCount
+                            })
+                        end
+                    end
+                end
+            end
+            local Valid, ErrorMessage = AutoForge.ValidateProfile(Profile)
+            Profile.ValidationError = Valid and nil or ErrorMessage
+            Profile.Enabled = Profile.Enabled and Valid
+            table.insert(Profiles, Profile)
+        end
+    end
+    return Profiles
+end
+
 local function LoadConfig()
     if readfile and isfile and isfile(FileNama) then
         local BerhasilBaca, IsiFile = pcall(function()
@@ -219,6 +332,9 @@ local function LoadConfig()
     Config.AutoForgeRecipeId = AutoForge.Recipes[Config.AutoForgeRecipeId] and Config.AutoForgeRecipeId or "WeaponSword"
     Config.AutoForgeOreComposition = AutoForge.NormalizeComposition(Config.AutoForgeOreComposition)
     Config.AutoForgeRequestedCrafts = math.floor(ClampNumber(Config.AutoForgeRequestedCrafts, 1, 999, 1))
+    Config.AutoForgeTargetMode = Config.AutoForgeTargetMode == true
+    Config.AutoForgeAutoDeleteNonMatch = Config.AutoForgeAutoDeleteNonMatch == true
+    Config.AutoForgeProfiles = AutoForge.NormalizeProfiles(Config.AutoForgeProfiles)
     Config.SellMaxRarity = math.floor(ClampNumber(Config.SellMaxRarity, 0, 10, 5))
     Config.AutoStartWorldId = type(Config.AutoStartWorldId) == "string" and Config.AutoStartWorldId or "World3"
     Config.AutoStartDifficulty = math.max(1, math.floor(tonumber(Config.AutoStartDifficulty) or 10))
@@ -256,6 +372,9 @@ local function SaveConfig()
     Config.AutoForgeRecipeId = AutoForge.RecipeId or Config.AutoForgeRecipeId
     Config.AutoForgeOreComposition = AutoForge.Composition or Config.AutoForgeOreComposition
     Config.AutoForgeRequestedCrafts = AutoForge.RequestedCrafts or Config.AutoForgeRequestedCrafts
+    Config.AutoForgeTargetMode = AutoForge.TargetMode
+    Config.AutoForgeAutoDeleteNonMatch = AutoForge.AutoDeleteNonMatch
+    Config.AutoForgeProfiles = AutoForge.Profiles
     Config.SellMaxRarity = SellMaxRarity or Config.SellMaxRarity
     Config.AutoStartWorldId = AutoStartWorldId or Config.AutoStartWorldId
     Config.AutoStartDifficulty = AutoStartDifficulty or Config.AutoStartDifficulty
@@ -280,6 +399,9 @@ AutoStartDifficulty = Config.AutoStartDifficulty
 AutoForge.RecipeId = Config.AutoForgeRecipeId
 AutoForge.Composition = Config.AutoForgeOreComposition
 AutoForge.RequestedCrafts = Config.AutoForgeRequestedCrafts
+AutoForge.TargetMode = Config.AutoForgeTargetMode
+AutoForge.AutoDeleteNonMatch = Config.AutoForgeAutoDeleteNonMatch
+AutoForge.Profiles = Config.AutoForgeProfiles
 AutoPotion.Selected = Config.AutoPotionSelected
 
 -- KONTROL SCRIPT MASTER
@@ -1943,6 +2065,169 @@ function AutoForge.CalculateLimit(Recipe, Composition, Ores, Crystals)
     return MaxCrafts, LimitingItemId, Reason
 end
 
+function AutoForge.BuildStatCatalog(ResultData)
+    local Seen = {}
+    local function AddStat(Value)
+        local StatId = AutoForge.NormalizeStatId(Value)
+        if StatId and StatId ~= "SpecialEntry" then
+            Seen[StatId] = true
+        end
+    end
+    local AttrEntry = GetGameEnum().AttrEntry or {}
+    for Key, Value in pairs(AttrEntry) do
+        AddStat(Key)
+        AddStat(Value)
+    end
+    for StatId in pairs(AutoForge.Groups.Offensive) do
+        AddStat(StatId)
+    end
+    for StatId in pairs(AutoForge.DiscoveredStats) do
+        AddStat(StatId)
+    end
+    for AttributeKey in pairs(type(ResultData) == "table" and type(ResultData.Attr) == "table" and ResultData.Attr or {}) do
+        AddStat(AttributeKey)
+    end
+
+    local TranslationUtil = GetFrameworkModule().Modules.TranslationUtil
+    local Catalog = {}
+    for StatId in pairs(Seen) do
+        local TranslationKey = "K_" .. string.upper(StatId)
+        local DisplayName = StatId
+        pcall(function()
+            local Translated = TranslationUtil:TranslateByKey(TranslationKey)
+            if type(Translated) == "string" and Translated ~= "" and Translated ~= TranslationKey then
+                DisplayName = Translated
+            end
+        end)
+        table.insert(Catalog, {StatId = StatId, DisplayName = DisplayName})
+    end
+    table.sort(Catalog, function(Left, Right)
+        return string.lower(Left.DisplayName) < string.lower(Right.DisplayName)
+    end)
+    AutoForge.StatCatalog = Catalog
+    return Catalog
+end
+
+function AutoForge.BuildResultSummary(ResultData)
+    local Summary = {Slots = {}, Counts = {}, GroupCounts = {Offensive = 0}, TotalSlots = 0}
+    for AttributeKey in pairs(type(ResultData) == "table" and type(ResultData.Attr) == "table" and ResultData.Attr or {}) do
+        local StatId = AutoForge.NormalizeStatId(AttributeKey)
+        if StatId then
+            table.insert(Summary.Slots, StatId)
+            Summary.Counts[StatId] = (Summary.Counts[StatId] or 0) + 1
+            Summary.TotalSlots = Summary.TotalSlots + 1
+            AutoForge.DiscoveredStats[StatId] = true
+            if AutoForge.Groups.Offensive[StatId] then
+                Summary.GroupCounts.Offensive = Summary.GroupCounts.Offensive + 1
+            end
+        end
+    end
+    table.sort(Summary.Slots)
+    AutoForge.BuildStatCatalog(ResultData)
+    return Summary
+end
+
+function AutoForge.MatchProfile(Profile, Summary)
+    local Valid = AutoForge.ValidateProfile(Profile)
+    if not Valid or type(Summary) ~= "table" then
+        return false
+    end
+    if Profile.SlotMode == "Exact" and Summary.TotalSlots ~= Profile.SlotCount then
+        return false
+    end
+    if Profile.SlotMode == "AtLeast" and Summary.TotalSlots < Profile.SlotCount then
+        return false
+    end
+
+    local ReservedByGroup = {Offensive = 0}
+    for _, Rule in ipairs(Profile.Rules) do
+        if Rule.Kind == "Specific" then
+            if (Summary.Counts[Rule.StatId] or 0) < Rule.MinCount then
+                return false
+            end
+            if AutoForge.Groups.Offensive[Rule.StatId] then
+                ReservedByGroup.Offensive = ReservedByGroup.Offensive + Rule.MinCount
+            end
+        end
+    end
+    for _, Rule in ipairs(Profile.Rules) do
+        local GroupCount = Summary.GroupCounts[Rule.GroupId or ""] or 0
+        if Rule.Kind == "TotalGroup" and GroupCount < Rule.MinCount then
+            return false
+        elseif Rule.Kind == "AdditionalGroup" and (GroupCount - (ReservedByGroup[Rule.GroupId] or 0)) < Rule.MinCount then
+            return false
+        elseif Rule.Kind == "AllSlotsGroup" and (Summary.TotalSlots <= 0 or GroupCount ~= Summary.TotalSlots) then
+            return false
+        end
+    end
+    return true
+end
+
+function AutoForge.FindMatchingProfile(ResultData)
+    local Summary = AutoForge.BuildResultSummary(ResultData)
+    for _, Profile in ipairs(AutoForge.Profiles) do
+        if Profile.Enabled and AutoForge.MatchProfile(Profile, Summary) then
+            return Profile, Summary
+        end
+    end
+    return nil, Summary
+end
+
+function AutoForge.CopyResultData(ResultData)
+    local Copy = {}
+    for Key, Value in pairs(ResultData or {}) do
+        Copy[Key] = Key == "Attr" and CopyMap(Value) or Value
+    end
+    return Copy
+end
+
+function AutoForge.CheckEquipmentStorage()
+    local EquipmentUtil = GetFrameworkModule().Modules.EquipmentUtil
+    local Success, CanAdd = pcall(EquipmentUtil.CheckCanAdd, EquipmentUtil, LocalPlayer)
+    return Success and CanAdd == true
+end
+
+function AutoForge.NotifyTargetFound(Profile, ResultData)
+    pcall(function()
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "TARGET FOUND",
+            Text = tostring(Profile.Name) .. " - " .. GetItemDisplayName(ResultData.ID),
+            Duration = 10
+        })
+    end)
+end
+
+function AutoForge.RunTargetSelfCheck()
+    local function Result(Keys)
+        local Attr = {}
+        for Index, Key in ipairs(Keys) do
+            Attr[Key .. "_" .. tostring(Index)] = 1
+        end
+        return AutoForge.BuildResultSummary({Attr = Attr})
+    end
+    local Cases = {
+        {Name = "total offensive", Profile = {SlotMode = "Any", SlotCount = 1, Rules = {{Kind = "TotalGroup", GroupId = "Offensive", MinCount = 3}}}, Summary = Result({"AtkBonus", "CHDmgBonus", "CHIRate"}), Expected = true},
+        {Name = "additional offensive", Profile = {SlotMode = "Exact", SlotCount = 4, Rules = {{Kind = "Specific", StatId = "CHDmgBonus", MinCount = 2}, {Kind = "AdditionalGroup", GroupId = "Offensive", MinCount = 2}}}, Summary = Result({"CHDmgBonus", "CHDmgBonus", "AtkBonus", "CHIRate"}), Expected = true},
+        {Name = "crit rate remainder", Profile = {SlotMode = "Exact", SlotCount = 4, Rules = {{Kind = "Specific", StatId = "CHIRate", MinCount = 2}}}, Summary = Result({"CHIRate", "CHIRate", "HpBonus", "DefBonus"}), Expected = true},
+        {Name = "all slots offensive", Profile = {SlotMode = "Exact", SlotCount = 4, Rules = {{Kind = "AllSlotsGroup", GroupId = "Offensive"}}}, Summary = Result({"AtkBonus", "CHDmgBonus", "CHIRate", "SkillDmgBonus"}), Expected = true},
+        {Name = "duplicate normalized stats", Profile = {SlotMode = "Any", SlotCount = 1, Rules = {{Kind = "Specific", StatId = "CHDmgBonus", MinCount = 2}}}, Summary = AutoForge.BuildResultSummary({Attr = {CHDmgBonus_1 = 1, CHDmgBonus_Hell = 1}}), Expected = true},
+        {Name = "unknown offensive stat", Profile = {SlotMode = "Any", SlotCount = 1, Rules = {{Kind = "AllSlotsGroup", GroupId = "Offensive"}}}, Summary = Result({"MysteryAttack"}), Expected = false}
+    }
+    for _, Case in ipairs(Cases) do
+        assert(AutoForge.MatchProfile(Case.Profile, Case.Summary) == Case.Expected, "Auto Forge target self-check failed: " .. Case.Name)
+    end
+    local PreviousProfiles = AutoForge.Profiles
+    AutoForge.Profiles = {
+        {Name = "first", Enabled = true, SlotMode = "Any", SlotCount = 1, Rules = {{Kind = "Specific", StatId = "CHIRate", MinCount = 1}}},
+        {Name = "second", Enabled = true, SlotMode = "Any", SlotCount = 1, Rules = {{Kind = "Specific", StatId = "CHIRate", MinCount = 1}}}
+    }
+    local Match = AutoForge.FindMatchingProfile({Attr = {CHIRate_1 = 1}})
+    assert(Match and Match.Name == "first", "Auto Forge target self-check failed: first profile wins")
+    AutoForge.Profiles = PreviousProfiles
+end
+
+AutoForge.RunTargetSelfCheck()
+
 local function GetOreBackpackUsage()
     local Framework = GetFrameworkModule()
     local DataUtil = Framework.Modules.DataUtil
@@ -2374,11 +2659,14 @@ function AutoForge.WaitForResultClear(ForgeUtil, Timeout)
     return false
 end
 
-function AutoForge.RunCraft(Recipe, Composition)
+function AutoForge.RunCraft(Recipe, Composition, AttemptIndex)
     local Framework = GetFrameworkModule()
     local ForgeUtil = Framework.Modules.ForgeUtil
-    local WindowUtil = Framework.Modules.WindowUtil
     local ForgeRemote = GetForgeRemoteFunction()
+    if not AutoForge.CheckEquipmentStorage() then
+        AutoForge.SetStatus("STOPPED - EQUIPMENT BAG FULL")
+        return {Stop = true, Status = "STOPPED - EQUIPMENT BAG FULL"}
+    end
     local Accepted = ForgeRemote:InvokeServer("DropOres", Composition, Recipe.Category, Recipe.RelicId)
     if Accepted ~= true then
         error("DropOres rejected")
@@ -2415,11 +2703,52 @@ function AutoForge.RunCraft(Recipe, Composition)
     if not SyncedResult then
         error("forge result replication timeout")
     end
-    AutoForge.SetStatus("WAIT RESULT - " .. GetItemDisplayName(SyncedResult.ID))
-    WindowUtil:Open("ScreenForgeResult")
-    if not AutoForge.WaitForResultClear(ForgeUtil, 600.0) then
-        error("forge result decision timeout")
+    local ResultCopy = AutoForge.CopyResultData(SyncedResult)
+    local MatchedProfile = nil
+    local Summary = nil
+    local AcceptResult = true
+    local Stop = false
+
+    if AutoForge.TargetMode then
+        AutoForge.SetStatus("CHECKING TARGETS")
+        MatchedProfile, Summary = AutoForge.FindMatchingProfile(ResultCopy)
+        if MatchedProfile then
+            AutoForge.SetStatus("TARGET FOUND - " .. tostring(MatchedProfile.Name))
+            Stop = true
+        elseif AutoForge.AutoDeleteNonMatch then
+            AcceptResult = false
+            AutoForge.SetStatus("NON-MATCH - DELETED")
+        else
+            AutoForge.SetStatus("NON-MATCH - ACCEPTED")
+        end
+    else
+        Summary = AutoForge.BuildResultSummary(ResultCopy)
+        AutoForge.SetStatus("ACCEPTED - " .. GetItemDisplayName(ResultCopy.ID))
     end
+
+    if AcceptResult then
+        ForgeRemote:InvokeServer("ForgeResult", true)
+    else
+        ForgeRemote:InvokeServer("ForgeResult", false)
+    end
+    if not AutoForge.WaitForResultClear(ForgeUtil, 5.0) then
+        error("forge result acknowledgement timeout")
+    end
+
+    if MatchedProfile then
+        AutoForge.TargetFoundData = {
+            ProfileName = MatchedProfile.Name,
+            ItemId = ResultCopy.ID,
+            Attempt = AttemptIndex,
+            Summary = Summary,
+            Result = ResultCopy
+        }
+        AutoForge.NotifyTargetFound(MatchedProfile, ResultCopy)
+        if AutoForge.TargetRefresh then
+            pcall(AutoForge.TargetRefresh)
+        end
+    end
+    return {Stop = Stop, MatchedProfile = MatchedProfile, Summary = Summary, Result = ResultCopy}
 end
 
 function AutoForge.StartBatch()
@@ -2445,6 +2774,20 @@ function AutoForge.StartBatch()
         AutoForge.SetStatus("WAIT AUTO SELL")
         return false
     end
+    if AutoForge.TargetMode then
+        local HasEnabledProfile = false
+        for _, Profile in ipairs(AutoForge.Profiles) do
+            local Valid = AutoForge.ValidateProfile(Profile)
+            if Profile.Enabled and Valid then
+                HasEnabledProfile = true
+                break
+            end
+        end
+        if not HasEnabledProfile then
+            AutoForge.SetStatus("ENABLE A VALID TARGET PROFILE")
+            return false
+        end
+    end
 
     local Recipe = AutoForge.Recipes[AutoForge.RecipeId]
     local Composition = CopyMap(AutoForge.Composition)
@@ -2466,6 +2809,7 @@ function AutoForge.StartBatch()
     end
 
     task.spawn(function()
+        local FinalStatus = nil
         local Success, ErrorMessage = pcall(function()
             for CraftIndex = 1, Planned do
                 if not AutoForge.State.Token.Alive or not _G.AutoForge then
@@ -2478,13 +2822,22 @@ function AutoForge.StartBatch()
                 local CurrentOres, CurrentCrystals = AutoForge.GetInventory()
                 local CurrentMax = AutoForge.CalculateLimit(Recipe, Composition, CurrentOres, CurrentCrystals)
                 if CurrentMax <= 0 then
+                    FinalStatus = "STOPPED - MATERIALS EXHAUSTED"
                     break
                 end
 
                 AutoForge.SetStatus("FORGING " .. tostring(CraftIndex) .. "/" .. tostring(Planned))
-                AutoForge.RunCraft(Recipe, Composition)
+                local Decision = AutoForge.RunCraft(Recipe, Composition, CraftIndex)
+                if Decision and Decision.Status == "STOPPED - EQUIPMENT BAG FULL" then
+                    FinalStatus = Decision.Status
+                    break
+                end
                 AutoForge.State.Completed = CraftIndex
                 AutoForge.RefreshState()
+                if Decision and Decision.Stop then
+                    FinalStatus = "TARGET FOUND - " .. tostring(Decision.MatchedProfile.Name)
+                    break
+                end
             end
         end)
 
@@ -2492,6 +2845,8 @@ function AutoForge.StartBatch()
         if not Success then
             AutoForge.SetStatus("ERROR: " .. tostring(ErrorMessage))
             warn("[AutoForge] " .. tostring(ErrorMessage))
+        elseif FinalStatus then
+            AutoForge.SetStatus(FinalStatus)
         elseif AutoForge.State.Completed >= Planned then
             AutoForge.SetStatus("DONE " .. tostring(AutoForge.State.Completed) .. "/" .. tostring(Planned))
         else
@@ -4185,7 +4540,7 @@ end)
 function AutoForge.BuildMenuPage(Context)
     local Theme = Context.Theme
     local Page = Instance.new("Frame")
-    Page.Name = "AutoForgePage"
+    Page.Name = Context.Name or "AutoForgePage"
     Page.Size = UDim2.fromScale(1, 1)
     Page.BackgroundTransparency = 1
     Page.Visible = false
@@ -4471,6 +4826,438 @@ function AutoForge.BuildMenuPage(Context)
     return PageState
 end
 
+function AutoForge.BuildTargetsPage(Context)
+    local Theme = Context.Theme
+    local Page = Instance.new("Frame")
+    Page.Name = "ForgeTargetsPage"
+    Page.Size = UDim2.fromScale(1, 1)
+    Page.BackgroundTransparency = 1
+    Page.Visible = false
+    Page.Parent = Context.Parent
+
+    local TargetModeButton = Context.CreateButton(Page, "")
+    TargetModeButton.Size = UDim2.new(1, 0, 0, 30)
+    local AutoDeleteButton = Context.CreateButton(Page, "")
+    AutoDeleteButton.Position = UDim2.fromOffset(0, 34)
+    AutoDeleteButton.Size = UDim2.new(1, 0, 0, 30)
+    local AddProfileButton = Context.CreateButton(Page, "ADD PROFILE")
+    AddProfileButton.Position = UDim2.fromOffset(0, 68)
+    AddProfileButton.Size = UDim2.new(1, 0, 0, 30)
+
+    local ProfileList = Instance.new("ScrollingFrame")
+    ProfileList.Name = "TargetProfileList"
+    ProfileList.Position = UDim2.fromOffset(0, 104)
+    ProfileList.Size = UDim2.new(1, 0, 1, -104)
+    ProfileList.BackgroundColor3 = Theme.Background
+    ProfileList.BorderSizePixel = 0
+    ProfileList.ScrollBarThickness = 3
+    ProfileList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    ProfileList.CanvasSize = UDim2.fromOffset(0, 0)
+    ProfileList.Parent = Page
+    Context.AddCorner(ProfileList, 6)
+    Context.AddStroke(ProfileList)
+    local ProfilePadding = Instance.new("UIPadding")
+    ProfilePadding.PaddingTop = UDim.new(0, 5)
+    ProfilePadding.PaddingBottom = UDim.new(0, 5)
+    ProfilePadding.PaddingLeft = UDim.new(0, 5)
+    ProfilePadding.PaddingRight = UDim.new(0, 5)
+    ProfilePadding.Parent = ProfileList
+    local ProfileLayout = Instance.new("UIListLayout")
+    ProfileLayout.Padding = UDim.new(0, 5)
+    ProfileLayout.Parent = ProfileList
+
+    local Editor = Instance.new("Frame")
+    Editor.Name = "TargetProfileEditor"
+    Editor.Size = UDim2.fromScale(1, 1)
+    Editor.BackgroundColor3 = Theme.Panel
+    Editor.BorderSizePixel = 0
+    Editor.Visible = false
+    Editor.ZIndex = 50
+    Editor.Parent = Page
+    Context.AddCorner(Editor, 7)
+    Context.AddStroke(Editor, Theme.Accent)
+
+    local EditorTitle = Context.CreateText(Editor, "TARGET PROFILE", 13)
+    EditorTitle.Position = UDim2.fromOffset(8, 0)
+    EditorTitle.Size = UDim2.new(1, -16, 0, 28)
+    EditorTitle.Font = Enum.Font.GothamBold
+    EditorTitle.ZIndex = 51
+    local NameInput = Instance.new("TextBox")
+    NameInput.Position = UDim2.fromOffset(0, 32)
+    NameInput.Size = UDim2.new(1, 0, 0, 30)
+    NameInput.BackgroundColor3 = Theme.Surface
+    NameInput.BorderSizePixel = 0
+    NameInput.ClearTextOnFocus = false
+    NameInput.PlaceholderText = "Profile name"
+    NameInput.TextColor3 = Theme.Text
+    NameInput.Font = Enum.Font.Gotham
+    NameInput.TextSize = 12
+    NameInput.ZIndex = 51
+    NameInput.Parent = Editor
+    Context.AddCorner(NameInput, 6)
+    Context.AddStroke(NameInput)
+    local SlotModeButton = Context.CreateButton(Editor, "")
+    SlotModeButton.Name = "SlotModeDropdown"
+    SlotModeButton.Position = UDim2.fromOffset(0, 66)
+    SlotModeButton.Size = UDim2.new(0.64, -3, 0, 30)
+    SlotModeButton.ZIndex = 51
+    local SlotCountInput = Instance.new("TextBox")
+    SlotCountInput.Position = UDim2.new(0.64, 3, 0, 66)
+    SlotCountInput.Size = UDim2.new(0.36, -3, 0, 30)
+    SlotCountInput.BackgroundColor3 = Theme.Surface
+    SlotCountInput.BorderSizePixel = 0
+    SlotCountInput.ClearTextOnFocus = false
+    SlotCountInput.TextColor3 = Theme.Text
+    SlotCountInput.Font = Enum.Font.Gotham
+    SlotCountInput.TextSize = 12
+    SlotCountInput.ZIndex = 51
+    SlotCountInput.Parent = Editor
+    Context.AddCorner(SlotCountInput, 6)
+    Context.AddStroke(SlotCountInput)
+
+    local RulesList = Instance.new("ScrollingFrame")
+    RulesList.Name = "TargetRuleList"
+    RulesList.Position = UDim2.fromOffset(0, 102)
+    RulesList.Size = UDim2.new(1, 0, 1, -176)
+    RulesList.BackgroundColor3 = Theme.Background
+    RulesList.BorderSizePixel = 0
+    RulesList.ScrollBarThickness = 3
+    RulesList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    RulesList.CanvasSize = UDim2.fromOffset(0, 0)
+    RulesList.ZIndex = 51
+    RulesList.Parent = Editor
+    Context.AddCorner(RulesList, 6)
+    Context.AddStroke(RulesList)
+    local RulesPadding = Instance.new("UIPadding")
+    RulesPadding.PaddingTop = UDim.new(0, 5)
+    RulesPadding.PaddingBottom = UDim.new(0, 5)
+    RulesPadding.PaddingLeft = UDim.new(0, 5)
+    RulesPadding.PaddingRight = UDim.new(0, 5)
+    RulesPadding.Parent = RulesList
+    local RulesLayout = Instance.new("UIListLayout")
+    RulesLayout.Padding = UDim.new(0, 5)
+    RulesLayout.Parent = RulesList
+
+    local ErrorLabel = Context.CreateText(Editor, "", 10, Theme.Keep)
+    ErrorLabel.Position = UDim2.new(0, 4, 1, -70)
+    ErrorLabel.Size = UDim2.new(1, -8, 0, 18)
+    ErrorLabel.ZIndex = 51
+    local AddRuleButton = Context.CreateButton(Editor, "ADD RULE")
+    AddRuleButton.Position = UDim2.new(0, 0, 1, -48)
+    AddRuleButton.Size = UDim2.new(0.34, -3, 0, 30)
+    AddRuleButton.ZIndex = 51
+    local SaveButton = Context.CreateButton(Editor, "SAVE")
+    SaveButton.Position = UDim2.new(0.34, 3, 1, -48)
+    SaveButton.Size = UDim2.new(0.33, -3, 0, 30)
+    SaveButton.ZIndex = 51
+    local CancelButton = Context.CreateButton(Editor, "CANCEL")
+    CancelButton.Position = UDim2.new(0.67, 3, 1, -48)
+    CancelButton.Size = UDim2.new(0.33, -3, 0, 30)
+    CancelButton.ZIndex = 51
+
+    local Picker = Instance.new("Frame")
+    Picker.Name = "TargetEditorPicker"
+    Picker.Size = UDim2.fromScale(1, 1)
+    Picker.BackgroundColor3 = Theme.Panel
+    Picker.BorderSizePixel = 0
+    Picker.Visible = false
+    Picker.ZIndex = 60
+    Picker.Parent = Editor
+    Context.AddCorner(Picker, 7)
+    Context.AddStroke(Picker, Theme.Accent)
+    local PickerTitle = Context.CreateText(Picker, "SELECT", 13)
+    PickerTitle.Size = UDim2.new(1, -70, 0, 30)
+    PickerTitle.Position = UDim2.fromOffset(8, 0)
+    PickerTitle.ZIndex = 61
+    local PickerClose = Context.CreateButton(Picker, "CLOSE")
+    PickerClose.AnchorPoint = Vector2.new(1, 0)
+    PickerClose.Position = UDim2.new(1, 0, 0, 0)
+    PickerClose.Size = UDim2.fromOffset(64, 30)
+    PickerClose.ZIndex = 61
+    local PickerList = Instance.new("ScrollingFrame")
+    PickerList.Position = UDim2.fromOffset(0, 36)
+    PickerList.Size = UDim2.new(1, 0, 1, -36)
+    PickerList.BackgroundColor3 = Theme.Background
+    PickerList.BorderSizePixel = 0
+    PickerList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+    PickerList.CanvasSize = UDim2.fromOffset(0, 0)
+    PickerList.ScrollBarThickness = 3
+    PickerList.ZIndex = 61
+    PickerList.Parent = Picker
+    local PickerLayout = Instance.new("UIListLayout")
+    PickerLayout.Padding = UDim.new(0, 5)
+    PickerLayout.Parent = PickerList
+
+    local Draft = nil
+    local EditingIndex = nil
+    local RefreshProfiles
+    local RefreshEditor
+
+    local function CopyProfile(Profile)
+        local Copy = {Id = Profile.Id, Name = Profile.Name, Enabled = Profile.Enabled, SlotMode = Profile.SlotMode,
+            SlotCount = Profile.SlotCount, Rules = {}}
+        for _, Rule in ipairs(Profile.Rules or {}) do
+            table.insert(Copy.Rules, CopyMap(Rule))
+        end
+        return Copy
+    end
+
+    local function OpenPicker(Title, Entries, OnSelect)
+        for _, Child in ipairs(PickerList:GetChildren()) do
+            if Child:IsA("GuiButton") then
+                Child:Destroy()
+            end
+        end
+        PickerTitle.Text = Title
+        for _, Entry in ipairs(Entries) do
+            local Option = Context.CreateButton(PickerList, Entry.Label)
+            Option.Size = UDim2.new(1, 0, 0, 30)
+            Option.ZIndex = 62
+            Option.Activated:Connect(function()
+                Picker.Visible = false
+                OnSelect(Entry.Value)
+            end)
+        end
+        Picker.Visible = true
+    end
+
+    local function ProfileSummary(Profile)
+        local Parts = {Profile.SlotMode == "Any" and "Any slots" or (Profile.SlotMode .. " " .. tostring(Profile.SlotCount))}
+        for _, Rule in ipairs(Profile.Rules or {}) do
+            if Rule.Kind == "Specific" then
+                table.insert(Parts, tostring(Rule.StatId) .. ">=" .. tostring(Rule.MinCount))
+            elseif Rule.Kind == "AllSlotsGroup" then
+                table.insert(Parts, "All Offensive")
+            else
+                table.insert(Parts, Rule.Kind .. ">=" .. tostring(Rule.MinCount))
+            end
+        end
+        return table.concat(Parts, " · ")
+    end
+
+    local function OpenEditor(Profile, Index)
+        Draft = CopyProfile(Profile)
+        EditingIndex = Index
+        Editor.Visible = true
+        Picker.Visible = false
+        RefreshEditor()
+    end
+
+    RefreshEditor = function()
+        if not Draft then
+            return
+        end
+        NameInput.Text = Draft.Name or ""
+        SlotModeButton.Text = "SLOTS: " .. tostring(Draft.SlotMode) .. " ▼"
+        SlotCountInput.Text = tostring(Draft.SlotCount or 1)
+        SlotCountInput.Visible = Draft.SlotMode ~= "Any"
+        for _, Child in ipairs(RulesList:GetChildren()) do
+            if Child:IsA("Frame") then
+                Child:Destroy()
+            end
+        end
+        for RuleIndex, Rule in ipairs(Draft.Rules or {}) do
+            local Row = Instance.new("Frame")
+            Row.Size = UDim2.new(1, -2, 0, 66)
+            Row.BackgroundColor3 = Theme.Surface
+            Row.BorderSizePixel = 0
+            Row.ZIndex = 52
+            Row.Parent = RulesList
+            Context.AddCorner(Row, 5)
+            local KindButton = Context.CreateButton(Row, Rule.Kind)
+            KindButton.Name = "RuleTypeDropdown"
+            KindButton.Position = UDim2.fromOffset(4, 4)
+            KindButton.Size = UDim2.new(0.48, -6, 0, 26)
+            KindButton.ZIndex = 53
+            local ValueButton = Context.CreateButton(Row, Rule.Kind == "Specific" and tostring(Rule.StatId) or "Offensive")
+            ValueButton.Name = Rule.Kind == "Specific" and "SpecificStatDropdown" or "GroupDropdown"
+            ValueButton.Position = UDim2.new(0.48, 2, 0, 4)
+            ValueButton.Size = UDim2.new(0.52, -36, 0, 26)
+            ValueButton.ZIndex = 53
+            local DeleteButton = Context.CreateButton(Row, "X")
+            DeleteButton.AnchorPoint = Vector2.new(1, 0)
+            DeleteButton.Position = UDim2.new(1, -4, 0, 4)
+            DeleteButton.Size = UDim2.fromOffset(28, 26)
+            DeleteButton.ZIndex = 53
+            local MinInput = Instance.new("TextBox")
+            MinInput.Position = UDim2.fromOffset(4, 35)
+            MinInput.Size = UDim2.new(1, -8, 0, 26)
+            MinInput.BackgroundColor3 = Theme.Background
+            MinInput.BorderSizePixel = 0
+            MinInput.ClearTextOnFocus = false
+            MinInput.Text = Rule.Kind == "AllSlotsGroup" and "ALL SLOTS" or tostring(Rule.MinCount or 1)
+            MinInput.TextColor3 = Theme.Text
+            MinInput.Font = Enum.Font.Gotham
+            MinInput.TextSize = 11
+            MinInput.TextEditable = Rule.Kind ~= "AllSlotsGroup"
+            MinInput.ZIndex = 53
+            MinInput.Parent = Row
+            Context.AddCorner(MinInput, 5)
+            KindButton.Activated:Connect(function()
+                OpenPicker("RULE TYPE", {
+                    {Label = "Specific", Value = "Specific"}, {Label = "Total Offensive", Value = "TotalGroup"},
+                    {Label = "Additional Offensive", Value = "AdditionalGroup"}, {Label = "All Slots Offensive", Value = "AllSlotsGroup"}
+                }, function(Value)
+                    Rule.Kind = Value
+                    Rule.GroupId = Value == "Specific" and nil or "Offensive"
+                    Rule.StatId = Value == "Specific" and (Rule.StatId or "CHDmgBonus") or nil
+                    Rule.MinCount = Value == "AllSlotsGroup" and nil or (Rule.MinCount or 1)
+                    RefreshEditor()
+                end)
+            end)
+            ValueButton.Activated:Connect(function()
+                if Rule.Kind ~= "Specific" then
+                    return
+                end
+                local Entries = {}
+                for _, Stat in ipairs(AutoForge.BuildStatCatalog()) do
+                    table.insert(Entries, {Label = Stat.DisplayName .. " (" .. Stat.StatId .. ")", Value = Stat.StatId})
+                end
+                OpenPicker("SPECIFIC STAT", Entries, function(Value)
+                    Rule.StatId = Value
+                    RefreshEditor()
+                end)
+            end)
+            DeleteButton.Activated:Connect(function()
+                table.remove(Draft.Rules, RuleIndex)
+                RefreshEditor()
+            end)
+            MinInput.FocusLost:Connect(function()
+                if Rule.Kind ~= "AllSlotsGroup" then
+                    Rule.MinCount = math.floor(ClampNumber(MinInput.Text, 1, 10, 1))
+                    RefreshEditor()
+                end
+            end)
+        end
+        local Valid, ErrorMessage = AutoForge.ValidateProfile(Draft)
+        ErrorLabel.Text = Valid and "" or tostring(ErrorMessage)
+        SaveButton.BackgroundColor3 = Valid and Theme.Enabled or Theme.Disabled
+    end
+
+    RefreshProfiles = function()
+        TargetModeButton.Text = "TARGET MODE: " .. (AutoForge.TargetMode and "ON" or "OFF")
+        TargetModeButton.BackgroundColor3 = AutoForge.TargetMode and Theme.Enabled or Theme.Disabled
+        AutoDeleteButton.Text = "AUTO DELETE NON-MATCH: " .. (AutoForge.AutoDeleteNonMatch and "ON" or "OFF")
+        AutoDeleteButton.BackgroundColor3 = AutoForge.AutoDeleteNonMatch and Theme.Keep or Theme.Disabled
+        for _, Child in ipairs(ProfileList:GetChildren()) do
+            if Child:IsA("Frame") then
+                Child:Destroy()
+            end
+        end
+        for Index, Profile in ipairs(AutoForge.Profiles) do
+            local Row = Instance.new("Frame")
+            Row.Size = UDim2.new(1, -2, 0, 78)
+            Row.BackgroundColor3 = Theme.Surface
+            Row.BorderSizePixel = 0
+            Row.Parent = ProfileList
+            Context.AddCorner(Row, 5)
+            local EnabledButton = Context.CreateButton(Row, Profile.Enabled and "✓" or "")
+            EnabledButton.Position = UDim2.fromOffset(5, 5)
+            EnabledButton.Size = UDim2.fromOffset(28, 28)
+            EnabledButton.BackgroundColor3 = Profile.Enabled and Theme.Enabled or Theme.Disabled
+            local Name = Context.CreateText(Row, Profile.Name, 11)
+            Name.Position = UDim2.fromOffset(38, 3)
+            Name.Size = UDim2.new(1, -42, 0, 28)
+            local Summary = Context.CreateText(Row, Profile.ValidationError or ProfileSummary(Profile), 9,
+                Profile.ValidationError and Theme.Keep or Theme.Muted)
+            Summary.Position = UDim2.fromOffset(6, 32)
+            Summary.Size = UDim2.new(1, -12, 0, 18)
+            local Edit = Context.CreateButton(Row, "EDIT")
+            Edit.Position = UDim2.fromOffset(5, 52)
+            Edit.Size = UDim2.new(0.34, -5, 0, 22)
+            local Duplicate = Context.CreateButton(Row, "COPY")
+            Duplicate.Position = UDim2.new(0.34, 2, 0, 52)
+            Duplicate.Size = UDim2.new(0.33, -4, 0, 22)
+            local Delete = Context.CreateButton(Row, "DELETE")
+            Delete.Position = UDim2.new(0.67, 2, 0, 52)
+            Delete.Size = UDim2.new(0.33, -7, 0, 22)
+            EnabledButton.Activated:Connect(function()
+                local Valid = AutoForge.ValidateProfile(Profile)
+                Profile.Enabled = Valid and not Profile.Enabled or false
+                SaveConfig()
+                RefreshProfiles()
+            end)
+            Edit.Activated:Connect(function() OpenEditor(Profile, Index) end)
+            Duplicate.Activated:Connect(function()
+                local Copy = CopyProfile(Profile)
+                Copy.Id = nil
+                Copy.Name = Copy.Name .. " Copy"
+                Copy.Enabled = false
+                local Normalized = AutoForge.NormalizeProfiles({Copy})[1]
+                table.insert(AutoForge.Profiles, Normalized)
+                SaveConfig()
+                RefreshProfiles()
+            end)
+            Delete.Activated:Connect(function()
+                table.remove(AutoForge.Profiles, Index)
+                SaveConfig()
+                RefreshProfiles()
+            end)
+        end
+    end
+
+    TargetModeButton.Activated:Connect(function()
+        AutoForge.TargetMode = not AutoForge.TargetMode
+        SaveConfig()
+        RefreshProfiles()
+    end)
+    AutoDeleteButton.Activated:Connect(function()
+        AutoForge.AutoDeleteNonMatch = not AutoForge.AutoDeleteNonMatch
+        SaveConfig()
+        RefreshProfiles()
+    end)
+    AddProfileButton.Activated:Connect(function()
+        OpenEditor({Id = HttpService:GenerateGUID(false), Name = "New Target", Enabled = false, SlotMode = "Any",
+            SlotCount = 1, Rules = {{Kind = "Specific", StatId = "CHDmgBonus", MinCount = 2}}}, nil)
+    end)
+    SlotModeButton.Activated:Connect(function()
+        OpenPicker("SLOT MODE", {{Label = "Any", Value = "Any"}, {Label = "Exact", Value = "Exact"},
+            {Label = "At Least", Value = "AtLeast"}}, function(Value)
+            Draft.SlotMode = Value
+            RefreshEditor()
+        end)
+    end)
+    SlotCountInput.FocusLost:Connect(function()
+        Draft.SlotCount = math.floor(ClampNumber(SlotCountInput.Text, 1, 10, 1))
+        RefreshEditor()
+    end)
+    AddRuleButton.Activated:Connect(function()
+        table.insert(Draft.Rules, {Kind = "Specific", StatId = "CHDmgBonus", MinCount = 1})
+        RefreshEditor()
+    end)
+    SaveButton.Activated:Connect(function()
+        Draft.Name = NameInput.Text ~= "" and NameInput.Text or "Target Profile"
+        local Valid, ErrorMessage = AutoForge.ValidateProfile(Draft)
+        if not Valid then
+            ErrorLabel.Text = tostring(ErrorMessage)
+            return
+        end
+        local Normalized = AutoForge.NormalizeProfiles({Draft})[1]
+        if EditingIndex then
+            AutoForge.Profiles[EditingIndex] = Normalized
+        else
+            table.insert(AutoForge.Profiles, Normalized)
+        end
+        SaveConfig()
+        Editor.Visible = false
+        RefreshProfiles()
+    end)
+    CancelButton.Activated:Connect(function() Editor.Visible = false end)
+    PickerClose.Activated:Connect(function() Picker.Visible = false end)
+
+    local PageState = {Page = Page}
+    function PageState.Close()
+        Picker.Visible = false
+        Editor.Visible = false
+    end
+    function PageState.CloseDropdowns()
+        Picker.Visible = false
+    end
+    PageState.Refresh = RefreshProfiles
+    RefreshProfiles()
+    return PageState
+end
+
 local function BuildV6Menu()
 -- V6 NATIVE D3D-STYLE MENU
 for _, OldControl in ipairs({MasterButton, ModeButton, ReplayButtonToggle, ForgeButtonToggle, AutoBuyButtonToggle,
@@ -4662,12 +5449,17 @@ Navigation.Parent = D3DPanel
 
 local FarmTabButton = CreateButton(Navigation, "FARM")
 FarmTabButton.Name = "FarmTabButton"
-FarmTabButton.Size = UDim2.new(0.5, -3, 1, 0)
+FarmTabButton.Size = UDim2.new(1 / 3, -4, 1, 0)
 
 local UtilityTabButton = CreateButton(Navigation, "UTILITY")
 UtilityTabButton.Name = "UtilityTabButton"
-UtilityTabButton.Position = UDim2.new(0.5, 3, 0, 0)
-UtilityTabButton.Size = UDim2.new(0.5, -3, 1, 0)
+UtilityTabButton.Position = UDim2.new(1 / 3, 2, 0, 0)
+UtilityTabButton.Size = UDim2.new(1 / 3, -4, 1, 0)
+
+local ForgeTabButton = CreateButton(Navigation, "FORGE")
+ForgeTabButton.Name = "ForgeTabButton"
+ForgeTabButton.Position = UDim2.new(2 / 3, 4, 0, 0)
+ForgeTabButton.Size = UDim2.new(1 / 3, -4, 1, 0)
 
 local Content = Instance.new("Frame")
 Content.Position = UDim2.fromOffset(10, 92)
@@ -4688,6 +5480,13 @@ UtilityTab.BackgroundTransparency = 1
 UtilityTab.Visible = false
 UtilityTab.Parent = Content
 
+local ForgeTab = Instance.new("Frame")
+ForgeTab.Name = "ForgeTab"
+ForgeTab.Size = UDim2.fromScale(1, 1)
+ForgeTab.BackgroundTransparency = 1
+ForgeTab.Visible = false
+ForgeTab.Parent = Content
+
 local Footer = CreateText(D3DPanel, "© 2026 Bugon. All rights reserved.", 10, Theme.Muted, Enum.TextXAlignment.Center)
 Footer.AnchorPoint = Vector2.new(0.5, 1)
 Footer.Position = UDim2.new(0.5, 0, 1, -4)
@@ -4704,18 +5503,27 @@ FloatingIcon.Visible = false
 MakeDraggable(Header, D3DPanel)
 MakeDraggable(FloatingIcon, FloatingIcon)
 
+local CloseMenuDropdowns = function() end
 local function SetMainTab(Name)
     local IsFarm = Name == "Farm"
+    local IsUtility = Name == "Utility"
+    local IsForge = Name == "Forge"
     FarmTab.Visible = IsFarm
-    UtilityTab.Visible = not IsFarm
+    UtilityTab.Visible = IsUtility
+    ForgeTab.Visible = IsForge
     FarmTabButton.BackgroundColor3 = IsFarm and Theme.Accent or Theme.Surface
-    UtilityTabButton.BackgroundColor3 = IsFarm and Theme.Surface or Theme.Accent
+    UtilityTabButton.BackgroundColor3 = IsUtility and Theme.Accent or Theme.Surface
+    ForgeTabButton.BackgroundColor3 = IsForge and Theme.Accent or Theme.Surface
+    CloseMenuDropdowns()
 end
 FarmTabButton.Activated:Connect(function()
     SetMainTab("Farm")
 end)
 UtilityTabButton.Activated:Connect(function()
     SetMainTab("Utility")
+end)
+ForgeTabButton.Activated:Connect(function()
+    SetMainTab("Forge")
 end)
 MinimizeButton.Activated:Connect(function()
     D3DPanel.Visible = false
@@ -4904,25 +5712,37 @@ UtilityNavigation.BackgroundTransparency = 1
 UtilityNavigation.Parent = UtilityTab
 
 local DungeonTabButton = CreateButton(UtilityNavigation, "DUNGEON")
-DungeonTabButton.Size = UDim2.new(0.2, -4, 1, 0)
+DungeonTabButton.Size = UDim2.new(0.25, -4, 1, 0)
 local GroceryTabButton = CreateButton(UtilityNavigation, "GROCERY")
-GroceryTabButton.Position = UDim2.new(0.2, 2, 0, 0)
-GroceryTabButton.Size = UDim2.new(0.2, -4, 1, 0)
+GroceryTabButton.Position = UDim2.new(0.25, 2, 0, 0)
+GroceryTabButton.Size = UDim2.new(0.25, -4, 1, 0)
 local SeasonTabButton = CreateButton(UtilityNavigation, "SEASON")
-SeasonTabButton.Position = UDim2.new(0.4, 4, 0, 0)
-SeasonTabButton.Size = UDim2.new(0.2, -4, 1, 0)
+SeasonTabButton.Position = UDim2.new(0.5, 4, 0, 0)
+SeasonTabButton.Size = UDim2.new(0.25, -4, 1, 0)
 local AutoSellTabButton = CreateButton(UtilityNavigation, "AUTO SELL")
-AutoSellTabButton.Position = UDim2.new(0.6, 6, 0, 0)
-AutoSellTabButton.Size = UDim2.new(0.2, -4, 1, 0)
-local AutoForgeTabButton = CreateButton(UtilityNavigation, "FORGE")
-AutoForgeTabButton.Position = UDim2.new(0.8, 8, 0, 0)
-AutoForgeTabButton.Size = UDim2.new(0.2, -8, 1, 0)
+AutoSellTabButton.Position = UDim2.new(0.75, 6, 0, 0)
+AutoSellTabButton.Size = UDim2.new(0.25, -6, 1, 0)
 
 local UtilityPages = Instance.new("Frame")
 UtilityPages.Position = UDim2.fromOffset(0, 124)
 UtilityPages.Size = UDim2.new(1, 0, 1, -124)
 UtilityPages.BackgroundTransparency = 1
 UtilityPages.Parent = UtilityTab
+
+local ForgeNavigation = Instance.new("Frame")
+ForgeNavigation.Size = UDim2.new(1, 0, 0, 32)
+ForgeNavigation.BackgroundTransparency = 1
+ForgeNavigation.Parent = ForgeTab
+local ForgeCraftButton = CreateButton(ForgeNavigation, "CRAFT")
+ForgeCraftButton.Size = UDim2.new(0.5, -3, 1, 0)
+local ForgeTargetsButton = CreateButton(ForgeNavigation, "TARGETS")
+ForgeTargetsButton.Position = UDim2.new(0.5, 3, 0, 0)
+ForgeTargetsButton.Size = UDim2.new(0.5, -3, 1, 0)
+local ForgePages = Instance.new("Frame")
+ForgePages.Position = UDim2.fromOffset(0, 40)
+ForgePages.Size = UDim2.new(1, 0, 1, -40)
+ForgePages.BackgroundTransparency = 1
+ForgePages.Parent = ForgeTab
 
 local function CreateSelectorDropdown(Parent, Name, PositionY, OpenUpwards)
     local Button = CreateButton(Parent, "")
@@ -5236,13 +6056,86 @@ local GroceryPage = CreateCatalogPage("GroceryPage")
 local SeasonPage = CreateCatalogPage("SeasonPage")
 local AutoSellPage = CreateCatalogPage("AutoSellPage")
 local AutoForgePage = AutoForge.BuildMenuPage({
-    Parent = UtilityPages,
+    Parent = ForgePages,
+    Name = "ForgeCraftPage",
     Theme = Theme,
     CreateButton = CreateButton,
     CreateText = CreateText,
     AddCorner = AddCorner,
     AddStroke = AddStroke
 })
+local ForgeTargetsPage = AutoForge.BuildTargetsPage({
+    Parent = ForgePages,
+    Theme = Theme,
+    CreateButton = CreateButton,
+    CreateText = CreateText,
+    AddCorner = AddCorner,
+    AddStroke = AddStroke
+})
+
+local function SetForgePage(Name)
+    AutoForgePage.Close()
+    ForgeTargetsPage.Close()
+    AutoForgePage.Page.Visible = Name == "Craft"
+    ForgeTargetsPage.Page.Visible = Name == "Targets"
+    ForgeCraftButton.BackgroundColor3 = Name == "Craft" and Theme.Accent or Theme.Surface
+    ForgeTargetsButton.BackgroundColor3 = Name == "Targets" and Theme.Accent or Theme.Surface
+    if Name == "Targets" then
+        ForgeTargetsPage.Refresh()
+    end
+end
+ForgeCraftButton.Activated:Connect(function() SetForgePage("Craft") end)
+ForgeTargetsButton.Activated:Connect(function() SetForgePage("Targets") end)
+SetForgePage("Craft")
+
+local TargetFoundModal = Instance.new("Frame")
+TargetFoundModal.Name = "TargetFoundModal"
+TargetFoundModal.Size = UDim2.fromScale(1, 1)
+TargetFoundModal.BackgroundColor3 = Theme.Panel
+TargetFoundModal.BorderSizePixel = 0
+TargetFoundModal.Visible = false
+TargetFoundModal.ZIndex = 80
+TargetFoundModal.Parent = Content
+AddCorner(TargetFoundModal, 8)
+AddStroke(TargetFoundModal, Theme.Enabled, 2)
+local TargetFoundTitle = CreateText(TargetFoundModal, "TARGET FOUND", 18, Theme.Enabled, Enum.TextXAlignment.Center)
+TargetFoundTitle.Position = UDim2.fromOffset(10, 14)
+TargetFoundTitle.Size = UDim2.new(1, -20, 0, 32)
+TargetFoundTitle.Font = Enum.Font.GothamBold
+TargetFoundTitle.ZIndex = 81
+local TargetFoundText = CreateText(TargetFoundModal, "", 12, Theme.Text, Enum.TextXAlignment.Center)
+TargetFoundText.Position = UDim2.fromOffset(14, 58)
+TargetFoundText.Size = UDim2.new(1, -28, 1, -116)
+TargetFoundText.TextWrapped = true
+TargetFoundText.TextYAlignment = Enum.TextYAlignment.Top
+TargetFoundText.ZIndex = 81
+local TargetFoundClose = CreateButton(TargetFoundModal, "CLOSE")
+TargetFoundClose.AnchorPoint = Vector2.new(0.5, 1)
+TargetFoundClose.Position = UDim2.new(0.5, 0, 1, -14)
+TargetFoundClose.Size = UDim2.new(0.6, 0, 0, 34)
+TargetFoundClose.ZIndex = 81
+local function RefreshTargetFoundModal()
+    local Data = AutoForge.TargetFoundData
+    TargetFoundModal.Visible = Data ~= nil
+    if not Data then
+        return
+    end
+    local CountParts = {}
+    for StatId, Count in pairs(Data.Summary and Data.Summary.Counts or {}) do
+        table.insert(CountParts, tostring(StatId) .. " x" .. tostring(Count))
+    end
+    table.sort(CountParts)
+    TargetFoundText.Text = "PROFILE\n" .. tostring(Data.ProfileName) .. "\n\nITEM\n" ..
+        GetItemDisplayName(Data.ItemId) .. "\n\nATTEMPT " .. tostring(Data.Attempt) .. " · SLOTS " ..
+        tostring(Data.Summary and Data.Summary.TotalSlots or 0) .. "\n" .. table.concat(CountParts, "\n") ..
+        "\n\nAUTOMATICALLY ACCEPTED"
+end
+TargetFoundClose.Activated:Connect(function()
+    AutoForge.TargetFoundData = nil
+    RefreshTargetFoundModal()
+end)
+AutoForge.TargetRefresh = RefreshTargetFoundModal
+RefreshTargetFoundModal()
 
 local function ClearSelectorOptions(Options)
     for _, Child in ipairs(Options:GetChildren()) do
@@ -5314,17 +6207,14 @@ local function SetUtilityPage(Name)
     DungeonOptions.Visible = false
     DifficultyOptions.Visible = false
     AutoPotionOverlay.Visible = false
-    AutoForgePage.Close()
     DungeonPage.Visible = Name == "Dungeon"
     GroceryPage.Page.Visible = Name == "Grocery"
     SeasonPage.Page.Visible = Name == "Season"
     AutoSellPage.Page.Visible = Name == "AutoSell"
-    AutoForgePage.Page.Visible = Name == "AutoForge"
     DungeonTabButton.BackgroundColor3 = Name == "Dungeon" and Theme.Accent or Theme.Surface
     GroceryTabButton.BackgroundColor3 = Name == "Grocery" and Theme.Accent or Theme.Surface
     SeasonTabButton.BackgroundColor3 = Name == "Season" and Theme.Accent or Theme.Surface
     AutoSellTabButton.BackgroundColor3 = Name == "AutoSell" and Theme.Accent or Theme.Surface
-    AutoForgeTabButton.BackgroundColor3 = Name == "AutoForge" and Theme.Accent or Theme.Surface
     if Name == "Dungeon" then
         pcall(BuildDungeonPage, true)
     end
@@ -5333,7 +6223,13 @@ DungeonTabButton.Activated:Connect(function() SetUtilityPage("Dungeon") end)
 GroceryTabButton.Activated:Connect(function() SetUtilityPage("Grocery") end)
 SeasonTabButton.Activated:Connect(function() SetUtilityPage("Season") end)
 AutoSellTabButton.Activated:Connect(function() SetUtilityPage("AutoSell") end)
-AutoForgeTabButton.Activated:Connect(function() SetUtilityPage("AutoForge") end)
+CloseMenuDropdowns = function()
+    DungeonOptions.Visible = false
+    DifficultyOptions.Visible = false
+    AutoPotionOverlay.Visible = false
+    AutoForgePage.Close()
+    ForgeTargetsPage.CloseDropdowns()
+end
 SetUtilityPage("Dungeon")
 
 local function ClearCatalogRows(PageState)

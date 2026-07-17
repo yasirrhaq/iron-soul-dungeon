@@ -20,7 +20,8 @@ Feature behavior summary lives in `docs/features.md`.
 - Configure full Grocery, Season, and ore catalogs through searchable UI lists.
 - Set AutoSell max rarity and per-ore `AUTO`, `SELL`, or `KEEP` overrides.
 - Perfect Forge forces forge rating payloads to `15` when enabled.
-- Auto Forge runs selected weapon/armor recipes from exact ore composition, optional Fist relics, and inventory-clamped batch count without forge UI clicks.
+- Auto Forge runs selected recipes without forge UI clicks, auto-accepts normal results, and supports editable target-stat profiles with optional non-match deletion.
+- Native menu uses `FARM | UTILITY | FORGE`; Forge contains separate `CRAFT | TARGETS` views and a persistent target-found modal.
 - Auto Potion consumes one selected buff potion inside active dungeons when its native buff expires; Gold buffs are supported and Friendship potions are excluded.
 - Utility guards cover anti-AFK, semi-god state, noclip, anti-fall, and lobby pause behavior.
 
