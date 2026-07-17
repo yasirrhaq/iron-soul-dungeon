@@ -1529,6 +1529,7 @@ local function GetOreCatalog(ForceRefresh)
                 ItemType = "Ore",
                 Count = tonumber(Ores[OreId]) or 0,
                 Level = tonumber(Def.Level or Def[6]) or 0,
+                Sort = tonumber(Def.Sort or Def[5]) or 0,
                 Rarity = Rarity,
                 RarityName = RarityName,
                 Def = Def
@@ -1556,6 +1557,9 @@ local function GetOreCatalog(ForceRefresh)
         end
         if A.Rarity ~= B.Rarity then
             return A.Rarity > B.Rarity
+        end
+        if A.Sort ~= B.Sort then
+            return A.Sort < B.Sort
         end
         return tostring(A.ItemId) < tostring(B.ItemId)
     end)
