@@ -1569,6 +1569,12 @@ local function GetOreRarityLevels(Catalog)
         end
     end
     table.sort(Levels, function(A, B)
+        if A == 0 then
+            return true
+        end
+        if B == 0 then
+            return false
+        end
         return A > B
     end)
     return Levels
@@ -6490,7 +6496,9 @@ end
 local function FilterCatalogRows(PageState)
     local Query = string.lower(PageState.SearchBox.Text or "")
     for _, RowState in ipairs(PageState.Rows) do
-        RowState.Gui.Visible = Query == "" or string.find(RowState.SearchText, Query, 1, true) ~= nil
+        local MatchQuery = Query == "" or string.find(RowState.SearchText, Query, 1, true) ~= nil
+        local MatchRarity = not PageState.GetRarityFilter or PageState.GetRarityFilter() <= 0 or RowState.Rarity == PageState.GetRarityFilter()
+        RowState.Gui.Visible = MatchQuery and MatchRarity
     end
 end
 
@@ -6540,7 +6548,8 @@ local function CreateSelectionRow(PageState, Entry, SelectionMap, DetailText)
 
     table.insert(PageState.Rows, {
         Gui = Row,
-        SearchText = string.lower(DisplayName .. " " .. Entry.ItemId .. " " .. tostring(Entry.ItemType or ""))
+        SearchText = string.lower(DisplayName .. " " .. Entry.ItemId .. " " .. tostring(Entry.ItemType or "")),
+        Rarity = tonumber(Entry.Rarity) or 0
     })
 end
 
@@ -6615,6 +6624,71 @@ local function RarityDisplayName(Level, Catalog)
     return "Level " .. tostring(Level)
 end
 
+local AutoSellFilterButton = CreateButton(AutoSellPage.Page, "")
+AutoSellFilterButton.Name = "AutoSellRarityFilter"
+AutoSellFilterButton.Position = UDim2.new(1, -162, 0, 40)
+AutoSellFilterButton.Size = UDim2.fromOffset(96, 28)
+AutoSellFilterButton.TextSize = 10
+
+local AutoSellFilterOptions = Instance.new("Frame")
+AutoSellFilterOptions.Name = "AutoSellRarityOptions"
+AutoSellFilterOptions.Position = UDim2.new(1, -162, 0, 72)
+AutoSellFilterOptions.Size = UDim2.fromOffset(96, 10)
+AutoSellFilterOptions.BackgroundColor3 = Theme.Panel
+AutoSellFilterOptions.BorderSizePixel = 0
+AutoSellFilterOptions.Visible = false
+AutoSellFilterOptions.ZIndex = 20
+AutoSellFilterOptions.Parent = AutoSellPage.Page
+AddCorner(AutoSellFilterOptions, 6)
+AddStroke(AutoSellFilterOptions, Theme.Accent)
+local AutoSellFilterPadding = Instance.new("UIPadding")
+AutoSellFilterPadding.PaddingTop = UDim.new(0, 5)
+AutoSellFilterPadding.PaddingBottom = UDim.new(0, 5)
+AutoSellFilterPadding.PaddingLeft = UDim.new(0, 5)
+AutoSellFilterPadding.PaddingRight = UDim.new(0, 5)
+AutoSellFilterPadding.Parent = AutoSellFilterOptions
+local AutoSellFilterLayout = Instance.new("UIListLayout")
+AutoSellFilterLayout.Padding = UDim.new(0, 4)
+AutoSellFilterLayout.Parent = AutoSellFilterOptions
+
+local function AutoSellFilterDisplayName(Level, Catalog)
+    if Level <= 0 then
+        return "All"
+    end
+    for _, Entry in ipairs(Catalog or GetOreCatalog()) do
+        if Entry.Rarity == Level then
+            return tostring(Entry.RarityName) .. " Lv." .. tostring(Level)
+        end
+    end
+    return "Lv." .. tostring(Level)
+end
+
+local function RefreshAutoSellFilterButton(Catalog)
+    AutoSellFilterButton.Text = "RARITY: " .. AutoSellFilterDisplayName(AutoSellRarityFilter, Catalog) .. " ▼"
+end
+
+local function BuildAutoSellFilterOptions(Catalog)
+    for _, Child in ipairs(AutoSellFilterOptions:GetChildren()) do
+        if Child:IsA("GuiButton") then
+            Child:Destroy()
+        end
+    end
+    local Levels = GetOreRarityLevels(Catalog)
+    for _, Level in ipairs(Levels) do
+        local Option = CreateButton(AutoSellFilterOptions, AutoSellFilterDisplayName(Level, Catalog))
+        Option.Size = UDim2.new(1, 0, 0, 26)
+        Option.ZIndex = 21
+        Option.Activated:Connect(function()
+            AutoSellRarityFilter = Level
+            AutoSellFilterOptions.Visible = false
+            RefreshAutoSellFilterButton(Catalog)
+            FilterCatalogRows(AutoSellPage)
+        end)
+    end
+    AutoSellFilterOptions.Size = UDim2.fromOffset(96, #Levels * 30 + 10)
+    RefreshAutoSellFilterButton(Catalog)
+end
+
 local function RefreshRarityButton(Catalog)
     RarityButton.Text = "  Sell Max Rarity: " .. RarityDisplayName(SellMaxRarity, Catalog) .. "  ▼"
 end
@@ -6634,7 +6708,15 @@ local function BuildRarityOptions(Catalog)
             table.insert(Levels, Entry.Rarity)
         end
     end
-    table.sort(Levels)
+    table.sort(Levels, function(A, B)
+        if A == 0 then
+            return true
+        end
+        if B == 0 then
+            return false
+        end
+        return A < B
+    end)
 
     for _, Level in ipairs(Levels) do
         local Option = CreateButton(RarityOptions, RarityDisplayName(Level, Catalog))
@@ -6702,7 +6784,8 @@ local function CreateOreModeRow(Entry)
     Refresh()
     table.insert(AutoSellPage.Rows, {
         Gui = Row,
-        SearchText = string.lower(DisplayName .. " " .. Entry.ItemId .. " " .. tostring(Entry.RarityName))
+        SearchText = string.lower(DisplayName .. " " .. Entry.ItemId .. " " .. tostring(Entry.RarityName)),
+        Rarity = tonumber(Entry.Rarity) or 0
     })
 end
 
@@ -6713,13 +6796,22 @@ local function BuildAutoSellPage(ForceRefresh)
         CreateOreModeRow(Entry)
     end
     BuildRarityOptions(Catalog)
+    BuildAutoSellFilterOptions(Catalog)
     FilterCatalogRows(AutoSellPage)
 end
 
 AutoSellPage.SearchBox:GetPropertyChangedSignal("Text"):Connect(function() FilterCatalogRows(AutoSellPage) end)
 AutoSellPage.RefreshButton.Activated:Connect(function() pcall(BuildAutoSellPage, true) end)
+AutoSellPage.GetRarityFilter = function()
+    return AutoSellRarityFilter
+end
+AutoSellFilterButton.Activated:Connect(function()
+    AutoSellFilterOptions.Visible = not AutoSellFilterOptions.Visible
+    RarityOptions.Visible = false
+end)
 RarityButton.Activated:Connect(function()
     RarityOptions.Visible = not RarityOptions.Visible
+    AutoSellFilterOptions.Visible = false
 end)
 
 pcall(BuildGroceryPage, false)
