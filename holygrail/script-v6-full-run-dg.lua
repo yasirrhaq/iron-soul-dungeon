@@ -1530,8 +1530,7 @@ local function GetOreCatalog(ForceRefresh)
                 Count = tonumber(Ores[OreId]) or 0,
                 Rarity = Rarity,
                 RarityName = RarityName,
-                Def = Def,
-                DisplayName = GetItemDisplayName(OreId)
+                Def = Def
             })
         end
     end
@@ -1552,7 +1551,7 @@ local function GetOreCatalog(ForceRefresh)
 
     table.sort(Result, function(A, B)
         if A.Rarity == B.Rarity then
-            return tostring(A.DisplayName or A.ItemId) < tostring(B.DisplayName or B.ItemId)
+            return tostring(A.ItemId) < tostring(B.ItemId)
         end
         return A.Rarity > B.Rarity
     end)
