@@ -18,7 +18,7 @@ Feature behavior summary lives in `docs/features.md`.
 - Auto sell ores in lobby, then restart solo dungeon through an empty match-room portal.
 - Auto buy selected Gold shop and Season shop items.
 - Configure full Grocery, Season, and ore catalogs through searchable UI lists.
-- Set AutoSell max rarity and per-ore `AUTO`, `SELL`, or `KEEP` overrides.
+- Set AutoSell max rarity and per-ore `AUTO`, `SELL`, or `KEEP` overrides; ore catalogs are ordered by highest ore level first.
 - Perfect Forge forces forge rating payloads to `15` when enabled.
 - Auto Forge runs selected recipes without forge UI clicks, auto-accepts normal results, and supports editable per-profile stat pools, `Only From Pool` / `At Least N From Pool` rules, optional `Require Stat >= N`, and optional non-match deletion.
 - Enabled Target Forge profiles are checked top-to-bottom; first match wins.
