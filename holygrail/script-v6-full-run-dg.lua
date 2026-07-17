@@ -520,7 +520,7 @@ local IsEnteringPortal = false
 local PortalCooldown = false
 local LastEnemySeen = os.clock()
 
-local MaxPortalDistance = 250
+local MaxPortalDistance = 600
 local RaycastParamsInstance = RaycastParams.new()
 RaycastParamsInstance.FilterType = Enum.RaycastFilterType.Exclude
 AutoBuyWantedItemIds = Config.AutoBuyWantedItemIds
@@ -4952,7 +4952,7 @@ function AutoForge.BuildMenuPage(Context)
             Plus.Activated:Connect(function()
                 RecipeOptions.Visible = false
                 local Recipe = AutoForge.Recipes[AutoForge.RecipeId]
-                local Ores = AutoForge.GetInventory()
+                local Ores, _ = AutoForge.GetInventory()
                 local OwnedCount = tonumber(Ores[Entry.ItemId]) or 0
                 local SelectedCount = tonumber(AutoForge.Composition[Entry.ItemId]) or 0
                 if SelectedCount < OwnedCount and AutoForge.GetCompositionTotal(AutoForge.Composition) < Recipe.OreCount then
