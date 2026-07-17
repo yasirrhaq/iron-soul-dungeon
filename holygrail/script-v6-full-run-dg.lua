@@ -5662,7 +5662,7 @@ D3DPanel.Position = UDim2.fromScale(0.5, 0.5)
 D3DPanel.Size = UDim2.fromOffset(360, 520)
 D3DPanel.BackgroundColor3 = Theme.Panel
 D3DPanel.BorderSizePixel = 0
-D3DPanel.ClipsDescendants = true
+D3DPanel.ClipsDescendants = false
 D3DPanel.Parent = ScreenGui
 AddCorner(D3DPanel, 10)
 AddStroke(D3DPanel, Theme.Border, 1.25)
@@ -6743,3 +6743,4 @@ task.spawn(function()
         warn("[Bugon V6] menu error: " .. tostring(ErrorMessage))
     end
 end)
+
