@@ -1528,7 +1528,7 @@ local function GetOreCatalog(ForceRefresh)
                 ItemId = OreId,
                 ItemType = "Ore",
                 Count = tonumber(Ores[OreId]) or 0,
-                Level = GetItemDisplayLevel(OreId, Def.Level or Def[6]),
+                Level = tonumber(Def.Level or Def[6]) or 0,
                 Rarity = Rarity,
                 RarityName = RarityName,
                 Def = Def
@@ -1599,18 +1599,7 @@ local function ShouldSellOre(OreId, Def)
     return SellMaxRarity > 0 and Rarity and Rarity <= SellMaxRarity
 end
 
-
-local GetItemDisplayName
-local function GetItemDisplayLevel(ItemId, FallbackLevel)
-    local DisplayName = GetItemDisplayName(ItemId)
-    local Parsed = string.match(DisplayName, "%(Lv%.(%d+)%)")
-    local Level = tonumber(Parsed)
-    if Level then
-        return Level
-    end
-    return tonumber(FallbackLevel) or 0
-end
-GetItemDisplayName = function(ItemId)
+local function GetItemDisplayName(ItemId)
     local RawId = tostring(ItemId or "Unknown")
     local BaseId = string.split(RawId, ":")[1]
     local Key = "K_" .. string.upper(BaseId)
