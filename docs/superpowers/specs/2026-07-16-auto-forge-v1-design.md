@@ -100,7 +100,7 @@ If maximum is zero, disable Start Forge.
 Run one craft at a time. Re-read ore and relic inventory before each craft.
 
 1. Call `ForgeRF:InvokeServer("DropOres", Composition, Category, RelicId)`.
-2. Poll `ForgeUtil:GetForgeData(LocalPlayer)` until pending forge data exposes expected ore count or timeout occurs.
+2. Resume an existing pending QTE on the first attempt, otherwise poll `ForgeUtil:GetForgeData(LocalPlayer)` until a fresh `QTE` state exposes the expected ore count and a new UUID.
 3. Read QTE configuration with `ForgeUtil:GetForgeQTE(ForgeData.OresNum)`.
 4. Resume from `ForgeData.QTE.Times + 1`; never replay completed QTE steps.
 5. For each remaining step, read fresh `ForgeUtil:GetQTE(LocalPlayer).UUID` and submit `Rating = 15` through `ForgeUtil:QTE()`.
@@ -144,7 +144,7 @@ Auto Forge does not automatically trigger after auto-sell or dungeon completion 
 - Invalid composition: no remote call.
 - Insufficient inventory: clamp or disable start.
 - Missing/invalid relic: disable relic recipe start.
-- Pending forge timeout: stop batch and report status.
+- Fresh QTE data timeout: stop batch and report status without opening native Forge UI.
 - Missing QTE UUID: stop current batch without guessing.
 - Remote/module error: stop batch, unlock runner, retain user selections, and print concise warning.
 - Toggle disabled mid-run: finish no additional crafts after current safe step.

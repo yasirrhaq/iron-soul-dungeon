@@ -2620,12 +2620,13 @@ function AutoForge.SetStatus(Status)
     AutoForge.RefreshState()
 end
 
-function AutoForge.WaitForData(ForgeUtil, ExpectedOreCount, Timeout)
+function AutoForge.WaitForData(ForgeUtil, ExpectedOreCount, PreviousUUID, Timeout)
     local Deadline = os.clock() + Timeout
     repeat
         local Success, ForgeData = pcall(ForgeUtil.GetForgeData, ForgeUtil, LocalPlayer)
-        if Success and type(ForgeData) == "table" and ForgeData.OresNum == ExpectedOreCount and
-            type(ForgeData.QTE) == "table" then
+        if Success and type(ForgeData) == "table" and ForgeData.ForgeState == "QTE" and
+            ForgeData.OresNum == ExpectedOreCount and type(ForgeData.QTE) == "table" and
+            ForgeData.QTE.UUID and ForgeData.QTE.UUID ~= PreviousUUID then
             return ForgeData
         end
         task.wait(0.1)
@@ -2654,20 +2655,31 @@ function AutoForge.RunCraft(Recipe, Composition, AttemptIndex)
         AutoForge.SetStatus("STOPPED - EQUIPMENT BAG FULL")
         return {Stop = true, Status = "STOPPED - EQUIPMENT BAG FULL"}
     end
-    local Accepted = ForgeRemote:InvokeServer("DropOres", Composition, Recipe.Category, Recipe.RelicId)
-    if Accepted ~= true then
-        error("DropOres rejected")
-    end
-
-    local ForgeData = AutoForge.WaitForData(ForgeUtil, Recipe.OreCount, 5.0)
-    if not ForgeData then
-        error("pending forge timeout")
+    local ExistingData = ForgeUtil:GetForgeData(LocalPlayer)
+    local ForgeData = nil
+    if AttemptIndex == 1 and type(ExistingData) == "table" and ExistingData.ForgeState == "QTE" and
+        type(ExistingData.QTE) == "table" and ExistingData.QTE.UUID then
+        ForgeData = ExistingData
+        AutoForge.SetStatus("RESUMING PENDING QTE")
+    else
+        local PreviousUUID = type(ExistingData) == "table" and type(ExistingData.QTE) == "table" and
+            ExistingData.QTE.UUID or nil
+        local Accepted = ForgeRemote:InvokeServer("DropOres", Composition, Recipe.Category, Recipe.RelicId)
+        if Accepted ~= true then
+            error("DropOres rejected")
+        end
+        AutoForge.SetStatus("WAITING FOR QTE DATA")
+        ForgeData = AutoForge.WaitForData(ForgeUtil, Recipe.OreCount, PreviousUUID, 10.0)
+        if not ForgeData then
+            error("fresh QTE data timeout")
+        end
     end
 
     local QTEConfig = ForgeUtil:GetForgeQTE(ForgeData.OresNum)
     local CompletedQTE = tonumber(ForgeData.QTE.Times) or 0
     local TotalQTE = tonumber(QTEConfig and QTEConfig.QT) or 0
     for QTEIndex = CompletedQTE + 1, TotalQTE do
+        AutoForge.SetStatus("QTE " .. tostring(QTEIndex) .. "/" .. tostring(TotalQTE))
         local QTEData = ForgeUtil:GetQTE(LocalPlayer)
         if type(QTEData) ~= "table" or not QTEData.UUID then
             error("missing QTE UUID")
@@ -2677,8 +2689,8 @@ function AutoForge.RunCraft(Recipe, Composition, AttemptIndex)
             UUID = QTEData.UUID,
             Rating = 15
         })
-        if not AutoForge.WaitForQTEProgress(ForgeUtil, QTEIndex, PreviousUUID, 3.0) then
-            error("QTE progress timeout")
+        if not AutoForge.WaitForQTEProgress(ForgeUtil, QTEIndex, PreviousUUID, 10.0) then
+            error("QTE progress timeout " .. tostring(QTEIndex) .. "/" .. tostring(TotalQTE))
         end
     end
 
