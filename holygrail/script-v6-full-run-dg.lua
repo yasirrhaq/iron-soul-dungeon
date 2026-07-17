@@ -4899,11 +4899,11 @@ function AutoForge.BuildMenuPage(Context)
     local function BuildRows()
         ClearRows()
         local Catalog = GetOreCatalog(true)
-        for _, Entry in ipairs(Catalog) do
+        for Index, Entry in ipairs(Catalog) do
             local DisplayName = GetItemDisplayName(Entry.ItemId)
             local Row = Context.CreateButton(OreList, "")
             Row.Name = "ForgeOre_" .. Entry.ItemId
-            Row.LayoutOrder = _
+            Row.LayoutOrder = Index
             Row.Size = UDim2.new(1, -2, 0, 38)
 
             local Name = Context.CreateText(Row, DisplayName, 11)
