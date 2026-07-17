@@ -4793,6 +4793,7 @@ function AutoForge.BuildMenuPage(Context)
     OreList.Parent = Page
     local OreLayout = Instance.new("UIListLayout")
     OreLayout.Padding = UDim.new(0, 4)
+    OreLayout.SortOrder = Enum.SortOrder.LayoutOrder
     OreLayout.Parent = OreList
 
     local PageState = {
@@ -4902,6 +4903,7 @@ function AutoForge.BuildMenuPage(Context)
             local DisplayName = GetItemDisplayName(Entry.ItemId)
             local Row = Context.CreateButton(OreList, "")
             Row.Name = "ForgeOre_" .. Entry.ItemId
+            Row.LayoutOrder = _
             Row.Size = UDim2.new(1, -2, 0, 38)
 
             local Name = Context.CreateText(Row, DisplayName, 11)
