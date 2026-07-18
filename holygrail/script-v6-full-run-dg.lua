@@ -3273,6 +3273,26 @@ local function GetSkillButton(key)
     return (Buttons and Buttons:FindFirstChild(SkillName)) or (Skills and Skills:FindFirstChild(SkillName, true)) or nil
 end
 
+local function IsSkillSlotAssigned(key)
+    local Button = GetSkillButton(key)
+    if not Button or Button.Visible == false then
+        return false
+    end
+
+    local Icon = Button:FindFirstChild("Icon", true)
+    if Icon and (Icon:IsA("ImageLabel") or Icon:IsA("ImageButton")) then
+        return tostring(Icon.Image or "") ~= ""
+    end
+
+    local NameLabel = Button:FindFirstChild("Name", true) or Button:FindFirstChild("Txt", true) or
+        Button:FindFirstChild("Text", true)
+    if NameLabel and NameLabel:IsA("TextLabel") then
+        return tostring(NameLabel.Text or "") ~= ""
+    end
+
+    return true
+end
+
 local function IsWeaponSwitchReady()
     local Skills = GetSkillsFrame()
     local SwitchButton = Skills and Skills:FindFirstChild("SwitchWpn")
@@ -3338,6 +3358,11 @@ local function GetAnimationDebugSummary()
 end
 
 local function IsSkillReady(key)
+    local Skills = GetSkillsFrame()
+    if Skills and not IsSkillSlotAssigned(key) then
+        return false
+    end
+
     local Button = GetSkillButton(key)
     if Button then
         if key == "R" then
