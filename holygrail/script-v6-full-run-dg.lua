@@ -5534,7 +5534,7 @@ function AutoForge.BuildTargetsPage(Context)
     return PageState
 end
 
-local function BuildV6Menu()
+function _G.BugonBuildV6Menu()
 -- V6 NATIVE D3D-STYLE MENU
 for _, OldControl in ipairs({MasterButton, ModeButton, ReplayButtonToggle, ForgeButtonToggle, AutoBuyButtonToggle,
                              AutoSellButtonToggle, AutoSeasonBuyButtonToggle, LabelHeight, SliderHeightFrame, StatsLabel}) do
@@ -6766,7 +6766,7 @@ print("[Bugon V6] menu ready")
 end
 
 task.spawn(function()
-    local Success, ErrorMessage = pcall(BuildV6Menu)
+    local Success, ErrorMessage = pcall(_G.BugonBuildV6Menu)
     if not Success then
         warn("[Bugon V6] menu error: " .. tostring(ErrorMessage))
     end

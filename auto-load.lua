@@ -1,7 +1,19 @@
 -- IRON SOUL - CLOUD AUTOEXEC LAUNCHER
 
-local SourceUrl = "https://raw.githubusercontent.com/yasirrhaq/iron-soul-dungeon/main/holygrail/script-v6-full-run-dg.lua"
-local Source = game:HttpGet(SourceUrl)
+local SourceUrl = "https://raw.githubusercontent.com/yasirrhaq/iron-soul-dungeon/main/holygrail/script-v6-full-run-dg.lua?cb=" .. tostring(os.time())
+local FetchOk, Source = pcall(function()
+    return game:HttpGet(SourceUrl)
+end)
+
+if not FetchOk then
+    error("[Iron Soul Loader] fetch error: " .. tostring(Source), 0)
+end
+
+if type(Source) ~= "string" or Source == "" then
+    error("[Iron Soul Loader] fetch error: empty source", 0)
+end
+
+print("[Iron Soul Loader] fetched v6 source: " .. tostring(#Source) .. " bytes")
 local Chunk, CompileError = loadstring(Source)
 
 if not Chunk then
