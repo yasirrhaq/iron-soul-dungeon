@@ -3224,7 +3224,7 @@ local SkillButtonNames = {
     G = "SkillAW",
     R = "SkillU"
 }
-local SkillPriority = {"R", "E", "Q"}
+local SkillPriority = {"G", "R", "E", "Q"}
 local SkillDebug = _G.SkillDebug ~= false
 local SkillAnimationReleaseWindow = 0.2
 local WeaponSwitchCooldown = 3.1
@@ -3337,9 +3337,14 @@ local function GetAnimationDebugSummary()
     return "state=" .. StateName .. " anims=" .. (#Animations > 0 and table.concat(Animations, " | ") or "none")
 end
 
+local function IsSkillButtonEquipped(button)
+    return button:IsA("GuiObject") and button.Visible == true
+end
+
 local function IsSkillReady(key)
     local Button = GetSkillButton(key)
     if Button then
+        if key == "G" and not IsSkillButtonEquipped(Button) then return false end
         if key == "R" then
             return Button:GetAttribute("OnCD") ~= true and Button:GetAttribute("FullCharge") == true
         end
