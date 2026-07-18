@@ -3224,7 +3224,7 @@ local SkillButtonNames = {
     G = "SkillAW",
     R = "SkillU"
 }
-local SkillPriority = {"G", "R", "E", "Q"}
+local SkillPriority = {"R", "E", "Q"}
 local SkillDebug = _G.SkillDebug ~= false
 local SkillAnimationReleaseWindow = 0.2
 local WeaponSwitchCooldown = 3.1
@@ -6766,3 +6766,4 @@ task.spawn(function()
         warn("[Bugon V6] menu error: " .. tostring(ErrorMessage))
     end
 end)
+
