@@ -124,6 +124,7 @@ local Config = {
     TinggiMelayang = 5,
     UndergroundMode = true,
     AutoReplay = true,
+    AutoGiveup = true,
     PerfectForge = true,
     AutoBuy = false,
     AutoSell = false,
@@ -386,6 +387,7 @@ local function LoadConfig()
     Config.TinggiMelayang = ClampNumber(Config.TinggiMelayang, 5, 100, 5)
     Config.UndergroundMode = Config.UndergroundMode ~= false
     Config.AutoReplay = Config.AutoReplay ~= false
+    Config.AutoGiveup = Config.AutoGiveup ~= false
     Config.PerfectForge = Config.PerfectForge ~= false
     Config.AutoBuy = Config.AutoBuy == true
     Config.AutoSell = Config.AutoSell == true
@@ -427,6 +429,7 @@ local function SaveConfig()
     Config.TinggiMelayang = _G.TinggiMelayang
     Config.UndergroundMode = _G.UndergroundMode
     Config.AutoReplay = _G.AutoReplay
+    Config.AutoGiveup = _G.AutoGiveup
     Config.PerfectForge = _G.PerfectForge
     Config.AutoBuy = _G.AutoBuy
     Config.AutoSell = _G.AutoSell
@@ -481,6 +484,7 @@ _G.UndergroundMode = Config.UndergroundMode
 _G.KillAuraRadius = _G.TinggiMelayang + 40
 _G.AutoProgressStage = true
 _G.AutoReplay = Config.AutoReplay -- Mengontrol status replay otomatis secara global
+_G.AutoGiveup = Config.AutoGiveup
 _G.SemiGodMode = true
 _G.PerfectForge = Config.PerfectForge
 _G.AutoBuy = Config.AutoBuy
@@ -5830,6 +5834,13 @@ CreateToggleRow(FarmTab, "Auto Replay", function()
     return _G.AutoReplay
 end, function(Value)
     _G.AutoReplay = Value
+    SaveConfig()
+end)
+
+CreateToggleRow(FarmTab, "Auto Giveup", function()
+    return _G.AutoGiveup
+end, function(Value)
+    _G.AutoGiveup = Value
     SaveConfig()
 end)
 
