@@ -14,7 +14,7 @@ Feature behavior summary lives in `docs/features.md`.
 
 - Farm enemies with orbit movement, melee clicks, tool activation, skill spam, and weapon switching.
 - Handle Dragon Egg, chest targets, wave triggers, and stage portals.
-- Auto replay on victory, or return to lobby when ore backpack is full.
+- Auto replay on victory, auto give-up on death when enabled, or return to lobby when ore backpack is full.
 - Auto sell ores in lobby, then restart solo dungeon through an empty match-room portal.
 - Auto buy selected Gold shop and Season shop items.
 - Configure full Grocery, Season, and ore catalogs through searchable UI lists.

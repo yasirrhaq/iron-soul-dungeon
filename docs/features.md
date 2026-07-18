@@ -47,7 +47,8 @@ Brief behavior notes for `holygrail/script-v6-full-run-dg.lua`.
 - Victory detection scans visible GUI text for `victory`.
 - If backpack is not full, script waits reward-settle delay, then clicks visible Play Again / Replay / Restart UI.
 - If backpack is full, script clicks `ResultGui.ScreenSettlement.BtnGroup.ReturnToLobbyBtn` instead of replay.
-- Death handling scans for `you died`, then clicks `Give up` when visible.
+- Death handling scans for `you died`, then clicks `Give up` when visible if `Auto Giveup` is enabled.
+- A recent Give up also unlocks the same replay path as victory, so `Play Again` can still be clicked after death when backpack is not full.
 
 ## Auto Sell Queue
 
