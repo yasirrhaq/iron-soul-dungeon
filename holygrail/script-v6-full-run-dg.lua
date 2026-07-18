@@ -124,7 +124,6 @@ local Config = {
     TinggiMelayang = 5,
     UndergroundMode = true,
     AutoReplay = true,
-    AutoGiveup = true,
     PerfectForge = true,
     AutoBuy = false,
     AutoSell = false,
@@ -387,7 +386,6 @@ local function LoadConfig()
     Config.TinggiMelayang = ClampNumber(Config.TinggiMelayang, 5, 100, 5)
     Config.UndergroundMode = Config.UndergroundMode ~= false
     Config.AutoReplay = Config.AutoReplay ~= false
-Config.AutoGiveup = Config.AutoGiveup ~= false
     Config.PerfectForge = Config.PerfectForge ~= false
     Config.AutoBuy = Config.AutoBuy == true
     Config.AutoSell = Config.AutoSell == true
@@ -429,7 +427,6 @@ local function SaveConfig()
     Config.TinggiMelayang = _G.TinggiMelayang
     Config.UndergroundMode = _G.UndergroundMode
     Config.AutoReplay = _G.AutoReplay
-    Config.AutoGiveup = _G.AutoGiveup
     Config.PerfectForge = _G.PerfectForge
     Config.AutoBuy = _G.AutoBuy
     Config.AutoSell = _G.AutoSell
@@ -484,7 +481,6 @@ _G.UndergroundMode = Config.UndergroundMode
 _G.KillAuraRadius = _G.TinggiMelayang + 40
 _G.AutoProgressStage = true
 _G.AutoReplay = Config.AutoReplay -- Mengontrol status replay otomatis secara global
-_G.AutoGiveup = Config.AutoGiveup
 _G.SemiGodMode = true
 _G.PerfectForge = Config.PerfectForge
 _G.AutoBuy = Config.AutoBuy
@@ -519,7 +515,6 @@ local StatsLabel = nil
 
 local LastJumpTime = 0
 local JumpInterval = 0.1
-local LastGiveUpAt = -math.huge
 local LastPortalCheck = 0
 local IsEnteringPortal = false
 local PortalCooldown = false
@@ -4139,9 +4134,6 @@ local function ScanAndHandleDeath()
         return
     end
     local SemuaGui = PlayerGui:GetDescendants()
-    if not _G.AutoGiveup then
-        return
-    end
     if not HasVisibleText(SemuaGui, "you died") then
         return
     end
@@ -4150,7 +4142,6 @@ local function ScanAndHandleDeath()
     if GiveUpButton then
         print("[Auto Death] You died detected. Clicking Give up...")
         Target = nil
-        LastGiveUpAt = os.clock()
         EksekusiKlikReplay(GiveUpButton)
         task.wait(5.0)
     end
@@ -4175,9 +4166,7 @@ local function ScanAndExecuteReplay()
 
     local ReplayButton = nil
     local SemuaGui = PlayerGui:GetDescendants()
-    local HasVictory = HasVictoryUi(SemuaGui)
-    local HasRecentGiveup = _G.AutoGiveup and (os.clock() - LastGiveUpAt) <= 20
-    if not HasVictory and not HasRecentGiveup then
+    if not HasVictoryUi(SemuaGui) then
         return
     end
 
@@ -4192,7 +4181,7 @@ local function ScanAndExecuteReplay()
             task.wait(5.0)
 
             ReturnButton = GetReturnToLobbyButton()
-            if (HasVictory or HasRecentGiveup) and ReturnButton and IsGuiVisible(ReturnButton) then
+            if HasVictoryUi(PlayerGui:GetDescendants()) and ReturnButton and IsGuiVisible(ReturnButton) then
                 EksekusiKlikReplay(ReturnButton)
                 task.wait(8.0)
             end
@@ -4229,7 +4218,7 @@ local function ScanAndExecuteReplay()
         Target = nil
         task.wait(5.0)
 
-        if (HasVictory or HasRecentGiveup) and IsGuiVisible(ReplayButton) then
+        if HasVictoryUi(PlayerGui:GetDescendants()) and IsGuiVisible(ReplayButton) then
             print("[Auto Replay] Target Tombol Terkunci. Mengeksekusi Re-Run...")
             EksekusiKlikReplay(ReplayButton)
             task.wait(8.0)
@@ -5841,13 +5830,6 @@ CreateToggleRow(FarmTab, "Auto Replay", function()
     return _G.AutoReplay
 end, function(Value)
     _G.AutoReplay = Value
-    SaveConfig()
-end)
-
-CreateToggleRow(FarmTab, "Auto Giveup", function()
-    return _G.AutoGiveup
-end, function(Value)
-    _G.AutoGiveup = Value
     SaveConfig()
 end)
 
