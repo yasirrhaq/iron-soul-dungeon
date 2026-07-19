@@ -24,6 +24,7 @@ Weapon recipes:
 | Axe/Hammer | 16 | None | 100% |
 | Fist | 18 | None | 5% |
 | Fist + Common Relic | 18 | `FistRelic_1` | 20% |
+| Bow + Bow Relic | 18 | `BowRelic_1` | 20% |
 | Fist + Luxury Relic | 18 | `FistRelic_2` | 58% |
 
 Armor recipes:

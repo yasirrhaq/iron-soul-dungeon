@@ -50,6 +50,7 @@ local AutoForge = {
         WeaponAxeHammer = {Label = "Axe/Hammer", Category = "Weapon", OreCount = 16, Chance = 100},
         WeaponFist = {Label = "Fist", Category = "Weapon", OreCount = 18, Chance = 5},
         WeaponFistCommon = {Label = "Fist + Common Relic", Category = "Weapon", OreCount = 18, Chance = 20, RelicId = "FistRelic_1"},
+        WeaponBow = {Label = "Bow + Bow Relic", Category = "Weapon", OreCount = 18, Chance = 20, RelicId = "BowRelic_1"},
         WeaponFistLuxury = {Label = "Fist + Luxury Relic", Category = "Weapon", OreCount = 18, Chance = 58, RelicId = "FistRelic_2"},
         ArmorLightHelmet = {Label = "Light Helmet", Category = "Armor", OreCount = 3, Chance = 100},
         ArmorLightArmor = {Label = "Light Armor", Category = "Armor", OreCount = 10, Chance = 80},
@@ -57,7 +58,7 @@ local AutoForge = {
         ArmorHeavyArmor = {Label = "Heavy Armor", Category = "Armor", OreCount = 22, Chance = 100}
     },
     RecipeOrder = {
-        "WeaponSword", "WeaponStaff", "WeaponAxeHammer", "WeaponFist", "WeaponFistCommon",
+        "WeaponSword", "WeaponStaff", "WeaponAxeHammer", "WeaponFist", "WeaponFistCommon", "WeaponBow",
         "WeaponFistLuxury", "ArmorLightHelmet", "ArmorLightArmor", "ArmorHeavyHelmet", "ArmorHeavyArmor"
     },
     RecipeId = nil,
