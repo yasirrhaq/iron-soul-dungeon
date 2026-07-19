@@ -494,6 +494,33 @@ _G.AutoForge = Config.AutoForge
 _G.AutoPotion = Config.AutoPotion
 _G.AutoRejoin = Config.AutoRejoin
 
+task.spawn(function()
+    local StartedAt = os.clock()
+    while _G.AutoRejoin and os.clock() - StartedAt < 150 do
+        local Character = LocalPlayer.Character
+        if Character and Character:FindFirstChild("HumanoidRootPart") then
+            return
+        end
+        task.wait(5)
+    end
+    if not _G.AutoRejoin then
+        return
+    end
+    local Character = LocalPlayer.Character
+    if Character and Character:FindFirstChild("HumanoidRootPart") then
+        return
+    end
+    local PlaceId = Config.LobbyPlaceId > 0 and Config.LobbyPlaceId or game.PlaceId
+    if PlaceId <= 0 then
+        warn("[Bugon V6] character load timeout; no place id")
+        return
+    end
+    warn("[Bugon V6] character load timeout; rejoining " .. tostring(PlaceId))
+    pcall(function()
+        TeleportService:Teleport(PlaceId, LocalPlayer)
+    end)
+end)
+
 if _G.BugonAutoPotionRuntime and _G.BugonAutoPotionRuntime.Shutdown then
     pcall(_G.BugonAutoPotionRuntime.Shutdown)
 end
