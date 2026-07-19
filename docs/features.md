@@ -108,7 +108,7 @@ Brief behavior notes for `holygrail/script-v6-full-run-dg.lua`.
 
 - Main `FORGE` tab contains separate `CRAFT` and `TARGETS` views. Craft selects weapon or armor recipe, exact per-craft ore composition, and maximum attempt count.
 - Forge ore picker list uses same ore ordering as Auto Sell: highest ore level first, then rarity, then native game sort order.
-- Weapon recipes include Sword, Staff, Axe/Hammer, Fist, Common Fist Relic, Bow Relic, and Luxury Fist Relic variants; armor recipes include Light Helmet, Light Armor, Heavy Helmet, and Heavy Armor.
+- Weapon recipes include Sword, Staff, Axe/Hammer, Fist, Common Fist Relic, Bow, Bow Relic, and Luxury Fist Relic variants; armor recipes include Light Helmet, Light Armor, Heavy Helmet, and Heavy Armor.
 - Relic counts come from Crystals inventory through `KeyString.EquipmentUtil.Crystals`; Common Fist, Bow, and Luxury Fist recipes consume `FistRelic_1`, `BowRelic_1`, and `FistRelic_2` respectively.
 - Batch maximum uses the lowest `floor(owned/per-craft)` ore limit and optional relic count. Requested count displays an automatic clamp when inventory supports fewer crafts.
 - Auto Forge defaults off and consumes nothing until user enables it and presses `START FORGE` in lobby.
