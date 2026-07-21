@@ -850,8 +850,11 @@ function RejoinWatchdog.MarkHardStuck(Reason)
     RejoinWatchdog.RecoveryActive = false
     RejoinWatchdog.NextAttemptAt = nil
     RejoinWatchdog.Finalizing = false
+    Config.RecoveryPending = false
+    RejoinWatchdog.PendingSince = nil
     RejoinWatchdog.Status = "HARD STUCK"
     RejoinWatchdog.Log("HARD_STUCK", Reason)
+    SaveConfig()
 end
 
 function RejoinWatchdog.ScheduleNextAttempt()
@@ -927,7 +930,7 @@ function RejoinWatchdog.AttemptLobbyTeleport()
 end
 
 function RejoinWatchdog.BlocksAutomation()
-    return _G.AutoRejoin and (RejoinWatchdog.RecoveryActive or RejoinWatchdog.HardStuck)
+    return _G.AutoRejoin and RejoinWatchdog.RecoveryActive
 end
 
 function RejoinWatchdog.Tick()
@@ -971,9 +974,13 @@ function RejoinWatchdog.Tick()
         end
     end
 
-    if Config.RecoveryPending and not IsInLobby() and not RejoinWatchdog.RecoveryActive and
-        CurrentTime - (RejoinWatchdog.PendingSince or CurrentTime) >= 10 then
-        RejoinWatchdog.BeginRecovery("PENDING_NOT_LOBBY")
+    if Config.RecoveryPending and not TeleportText and not ReconnectButton and not IsInLobby() and
+        not RejoinWatchdog.RecoveryActive and CurrentTime - (RejoinWatchdog.PendingSince or CurrentTime) >= 10 then
+        Config.RecoveryPending = false
+        RejoinWatchdog.PendingSince = nil
+        RejoinWatchdog.Status = "IDLE"
+        RejoinWatchdog.Log("RECOVERY_PENDING_CLEARED_ACTIVE_SESSION")
+        SaveConfig()
     end
 
     if RejoinWatchdog.RecoveryActive and RejoinWatchdog.NextAttemptAt and CurrentTime >= RejoinWatchdog.NextAttemptAt then

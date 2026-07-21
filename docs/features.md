@@ -86,10 +86,10 @@ Brief behavior notes for `holygrail/script-v6-full-run-dg.lua`.
 - Visible `Teleporting` loading must remain for 60 seconds before recovery begins; a visible disconnect reconnect button also triggers recovery.
 - If V6 starts before character spawn, a 150-second no-`HumanoidRootPart` watchdog rejoins without waiting for PlayerGui/UI.
 - Script stores only the latest lobby `PlaceId`, then retries recovery after 15, 30, and 60 seconds with a maximum of three attempts per ten minutes.
-- Recovery pauses combat, movement, replay, portal, shop, and auto-start requests to avoid overlapping server actions.
+- Recovery pauses combat, movement, replay, portal, shop, and auto-start requests only while an active reconnect or teleport attempt is running.
 - After Delta AutoExec reloads V6 in lobby, a full backpack runs lobby auto-sell first; otherwise the saved solo dungeon auto-start queues immediately.
 - `Bugon-teleport-log.txt` records session, detection, retry, failure, lobby, sell, and restart events when executor file APIs are available.
-- `HARD STUCK` stops further requests. Lua cannot reopen Roblox or BlueStacks after an engine or application-level freeze.
+- `HARD STUCK` stops further recovery requests and clears stale pending state without freezing normal farming. Lua cannot reopen Roblox or BlueStacks after an engine or application-level freeze.
 
 ## Shops
 
