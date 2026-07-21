@@ -82,6 +82,7 @@ Brief behavior notes for `holygrail/script-v6-full-run-dg.lua`.
 - Farm tab `Auto Rejoin` toggle persists and defaults to enabled.
 - Disabled Auto Rejoin skips GUI detection work entirely.
 - Enabled detection caches targets through `PlayerGui` and `RobloxPromptGui` events; a fallback PlayerGui scan runs at most once every 30 seconds instead of every second.
+- Reconnect prompt detection binds CoreGui before PlayerGui exists, so loading-screen disconnects can still be caught.
 - Visible `Teleporting` loading must remain for 60 seconds before recovery begins; a visible disconnect reconnect button also triggers recovery.
 - If V6 starts before character spawn, a 150-second no-`HumanoidRootPart` watchdog rejoins without waiting for PlayerGui/UI.
 - Script stores only the latest lobby `PlaceId`, then retries recovery after 15, 30, and 60 seconds with a maximum of three attempts per ten minutes.

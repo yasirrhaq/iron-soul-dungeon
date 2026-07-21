@@ -613,6 +613,7 @@ local RejoinWatchdog = {
     LastFallbackScanAt = -math.huge,
     SignalsBound = false,
     PromptGuiBound = nil,
+    PlayerGuiBound = nil,
     PendingSince = Config.RecoveryPending and os.clock() or nil,
     LogFile = "Bugon-teleport-log.txt",
     Token = {
@@ -707,16 +708,20 @@ function RejoinWatchdog.FindReconnectButton()
     end
     local RobloxPromptGui = CoreGui:FindFirstChild("RobloxPromptGui")
     local PromptOverlay = RobloxPromptGui and RobloxPromptGui:FindFirstChild("promptOverlay")
-    return Scan(PromptOverlay)
+    return Scan(PromptOverlay) or Scan(RobloxPromptGui)
 end
 
 function RejoinWatchdog.TrackGuiObject(Object)
     if not _G.AutoRejoin or not Object then
         return
     end
-    if (Object:IsA("TextLabel") or Object:IsA("TextButton") or Object:IsA("TextBox")) and
-        string.find(string.lower(tostring(Object.Text)), "teleporting", 1, true) then
-        RejoinWatchdog.TeleportText = Object
+    if Object:IsA("TextLabel") or Object:IsA("TextButton") or Object:IsA("TextBox") then
+        local Text = string.lower(tostring(Object.Text))
+        if string.find(Text, "teleporting", 1, true) then
+            RejoinWatchdog.TeleportText = Object
+        elseif string.find(Text, "disconnected", 1, true) or string.find(Text, "lost connection", 1, true) then
+            RejoinWatchdog.BeginRecovery("DISCONNECT_TEXT")
+        end
     end
     local ReconnectButton = nil
     if Object:IsA("GuiButton") then
@@ -769,17 +774,26 @@ function RejoinWatchdog.BindPromptGui(RobloxPromptGui)
     end)
 end
 
-function RejoinWatchdog.BindGuiSignals()
-    if RejoinWatchdog.SignalsBound then
+function RejoinWatchdog.BindPlayerGui(PlayerGui)
+    if not PlayerGui or RejoinWatchdog.PlayerGuiBound == PlayerGui then
         return
     end
-    RejoinWatchdog.SignalsBound = true
-    local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+    RejoinWatchdog.PlayerGuiBound = PlayerGui
+    for _, Object in ipairs(PlayerGui:GetDescendants()) do
+        RejoinWatchdog.TrackGuiObject(Object)
+    end
     PlayerGui.DescendantAdded:Connect(function(Object)
         if RejoinWatchdog.Token.Alive then
             RejoinWatchdog.TrackGuiObject(Object)
         end
     end)
+end
+
+function RejoinWatchdog.BindGuiSignals()
+    if RejoinWatchdog.SignalsBound then
+        return
+    end
+    RejoinWatchdog.SignalsBound = true
     local Success, CoreGui = pcall(game.GetService, game, "CoreGui")
     if Success then
         RejoinWatchdog.BindPromptGui(CoreGui:FindFirstChild("RobloxPromptGui"))
@@ -789,6 +803,12 @@ function RejoinWatchdog.BindGuiSignals()
             end
         end)
     end
+    RejoinWatchdog.BindPlayerGui(LocalPlayer:FindFirstChild("PlayerGui"))
+    LocalPlayer.ChildAdded:Connect(function(Child)
+        if RejoinWatchdog.Token.Alive and Child.Name == "PlayerGui" then
+            RejoinWatchdog.BindPlayerGui(Child)
+        end
+    end)
     RejoinWatchdog.RefreshCachedTargets(true)
 end
 
@@ -800,7 +820,14 @@ function RejoinWatchdog.ClickButton(Button)
     VirtualInputManager:SendMouseButtonEvent(Position.X, Position.Y, 0, true, game, 0)
     task.wait(0.05)
     VirtualInputManager:SendMouseButtonEvent(Position.X, Position.Y, 0, false, game, 0)
+    pcall(function()
+        GuiService.SelectedObject = Button
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
+        task.wait(0.05)
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
+    end)
     if firesignal then
+        pcall(firesignal, Button.MouseButton1Click)
         pcall(firesignal, Button.Activated)
     end
     return true
