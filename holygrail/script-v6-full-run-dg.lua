@@ -2532,6 +2532,16 @@ local function TouchAutoStartPortal()
     end
 
     print("[AutoStart] Touching " .. Room.Name .. " portal")
+    local Direction = PortalPart.Position - RootPart.Position
+    if Direction.Magnitude < 0.1 then
+        Direction = RootPart.CFrame.LookVector
+    else
+        Direction = Direction.Unit
+    end
+    RootPart.CFrame = CFrame.new(PortalPart.Position - (Direction * 2) + Vector3.new(0, 1, 0))
+    RootPart.AssemblyLinearVelocity = Direction * 12
+    task.wait(0.05)
+    RootPart.CFrame = CFrame.new(PortalPart.Position + (Direction * 2) + Vector3.new(0, 1, 0))
     firetouchinterest(RootPart, PortalPart, 0)
     task.wait(0.2)
     firetouchinterest(RootPart, PortalPart, 1)
@@ -3818,10 +3828,22 @@ local function TriggerPortalInteraction(MyRoot, PortalPart, UseTouchTrigger)
         end
     end
 
-    -- Pindahkan karakter ke trigger portal dan fire touch event asli.
-    MyRoot.CFrame = CFrame.new(PortalPart.Position + Vector3.new(0, 1, 0))
+    local function WakePortalTouch()
+        local Direction = PortalPart.Position - MyRoot.Position
+        if Direction.Magnitude < 0.1 then
+            Direction = MyRoot.CFrame.LookVector
+        else
+            Direction = Direction.Unit
+        end
 
-    MyRoot.AssemblyLinearVelocity = Vector3.zero
+        MyRoot.CFrame = CFrame.new(PortalPart.Position - (Direction * 2) + Vector3.new(0, 1, 0))
+        MyRoot.AssemblyLinearVelocity = Direction * 12
+        task.wait(0.05)
+        MyRoot.CFrame = CFrame.new(PortalPart.Position + (Direction * 2) + Vector3.new(0, 1, 0))
+    end
+
+    -- Pindahkan karakter ke trigger portal dan fire touch event asli.
+    WakePortalTouch()
     MyRoot.AssemblyAngularVelocity = Vector3.zero
 
     if UseTouchTrigger then
@@ -3845,7 +3867,7 @@ local function TriggerPortalInteraction(MyRoot, PortalPart, UseTouchTrigger)
         MyRoot.AssemblyLinearVelocity = Vector3.zero
         MyRoot.AssemblyAngularVelocity = Vector3.zero
         if UseTouchTrigger then
-            MyRoot.CFrame = CFrame.new(PortalPart.Position + Vector3.new(0, 1, 0))
+            WakePortalTouch()
             TouchPortal()
         end
     end
