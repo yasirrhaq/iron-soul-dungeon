@@ -3759,8 +3759,8 @@ local LastPortalPosition = nil
 local LastPortalAttemptTime = 0
 
 local WAVE_TRIGGER_COOLDOWN = 2
-local PORTAL_COOLDOWN_DURATION = 8
-local MAP_LOAD_DELAY = 5
+local PORTAL_COOLDOWN_DURATION = 4
+local MAP_LOAD_DELAY = 3
 local SAME_PORTAL_POSITION_TOLERANCE = 3
 
 local function ResetPortalState()
@@ -4354,7 +4354,7 @@ task.spawn(function()
 
                     if _G.AutoProgressStage and not IsEnteringPortal and not PortalCooldown then
                         local CurrentTime = os.clock()
-                        if (CurrentTime - LastEnemySeen) >= 4.0 and (CurrentTime - LastPortalCheck) >= 1.5 then
+                        if (CurrentTime - LastEnemySeen) >= 2.0 and (CurrentTime - LastPortalCheck) >= 0.75 then
                             LastPortalCheck = CurrentTime
                             pcall(TeleportToNextStagePortal)
                         end
