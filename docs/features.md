@@ -10,6 +10,15 @@ Brief behavior notes for `holygrail/script-v6-full-run-dg.lua`.
 - `Script` toggles main automation; disabling it clears target and moves character upward.
 - `Underground Mode`, `Auto Replay`, and height slider preserve previous farm behavior.
 - `Perfect Forge`, `Auto Buy`, `Auto Sell`, and `Season Buy` toggles persist to `IronSoulConfig/YasirConfigV3.json`.
+- `PETS` utility page persists Auto Expedition, Auto Claim Expedition, and comma-separated slot priority; default `2,3,4` excludes slot 1.
+
+## Pet Expedition
+
+- Auto Claim scans every expedition slot and claims one completed slot per confirmed cycle, including slots excluded from dispatch priority.
+- Auto Expedition immediately consumes any remaining daily chances instead of waiting for a fresh `3/3` reset.
+- Dispatch uses first empty slot in configured order and highest-affinity eligible unequipped, non-time-limited pet.
+- Slot order accepts unique values from current game slot range; empty order disables dispatch while claims continue.
+- Claim and dispatch wait for replicated slot confirmation so shared server lock never receives overlapping requests.
 
 ## Farming And Combat
 

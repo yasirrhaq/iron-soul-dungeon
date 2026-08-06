@@ -118,6 +118,47 @@ local AutoPotion = {
     Refresh = nil,
     Token = {Alive = true}
 }
+AutoPetExpedition = {
+    PollInterval = 1,
+    ConfirmTimeout = 5,
+    SlotCount = 4,
+    SlotOrder = {2, 3, 4},
+    Status = "OFF",
+    Refresh = nil,
+    Token = {Alive = true}
+}
+
+function AutoPetExpedition.NormalizeSlotOrder(Value, MaxSlot)
+    MaxSlot = math.max(1, math.floor(tonumber(MaxSlot) or 4))
+    local Result = {}
+    local Seen = {}
+    local function Push(SlotIndex)
+        SlotIndex = tonumber(SlotIndex)
+        if SlotIndex and SlotIndex == math.floor(SlotIndex) and SlotIndex >= 1 and SlotIndex <= MaxSlot and
+            not Seen[SlotIndex] then
+            Seen[SlotIndex] = true
+            table.insert(Result, SlotIndex)
+        end
+    end
+    if type(Value) == "string" then
+        for Token in string.gmatch(Value, "[^,]+") do
+            Push(string.match(Token, "^%s*(.-)%s*$"))
+        end
+    elseif type(Value) == "table" then
+        for _, SlotIndex in ipairs(Value) do
+            Push(SlotIndex)
+        end
+    end
+    return Result
+end
+
+function AutoPetExpedition.FormatSlotOrder(Value)
+    local Parts = {}
+    for _, SlotIndex in ipairs(Value or {}) do
+        table.insert(Parts, tostring(SlotIndex))
+    end
+    return table.concat(Parts, ",")
+end
 local AutoBuyWantedItemIds = nil
 local AutoSeasonBuyWantedItemIds = nil
 local SellMaxRarity = nil
@@ -135,6 +176,9 @@ local Config = {
     AutoForge = false,
     AutoPotion = false,
     AutoPotionSelected = {},
+    AutoPetExpedition = false,
+    AutoClaimPetExpedition = false,
+    PetExpeditionSlotOrder = {2, 3, 4},
     AutoBuyWantedItemIds = CopyMap(DefaultAutoBuyWantedItemIds),
     AutoSeasonBuyWantedItemIds = CopyMap(DefaultAutoSeasonBuyWantedItemIds),
     AutoForgeRecipeId = "WeaponSword",
@@ -398,6 +442,9 @@ local function LoadConfig()
     Config.AutoForge = Config.AutoForge == true
     Config.AutoPotion = Config.AutoPotion == true
     Config.AutoPotionSelected = NormalizeEnabledMap(Config.AutoPotionSelected, {})
+    Config.AutoPetExpedition = Config.AutoPetExpedition == true
+    Config.AutoClaimPetExpedition = Config.AutoClaimPetExpedition == true
+    Config.PetExpeditionSlotOrder = AutoPetExpedition.NormalizeSlotOrder(Config.PetExpeditionSlotOrder, 99)
     Config.AutoBuyWantedItemIds = NormalizeEnabledMap(Config.AutoBuyWantedItemIds, DefaultAutoBuyWantedItemIds)
     Config.AutoSeasonBuyWantedItemIds = NormalizeEnabledMap(Config.AutoSeasonBuyWantedItemIds,
         DefaultAutoSeasonBuyWantedItemIds)
@@ -440,6 +487,9 @@ local function SaveConfig()
     Config.AutoForge = _G.AutoForge
     Config.AutoPotion = _G.AutoPotion
     Config.AutoPotionSelected = AutoPotion.Selected
+    Config.AutoPetExpedition = _G.AutoPetExpedition
+    Config.AutoClaimPetExpedition = _G.AutoClaimPetExpedition
+    Config.PetExpeditionSlotOrder = AutoPetExpedition.SlotOrder
     Config.AutoBuyWantedItemIds = AutoBuyWantedItemIds or Config.AutoBuyWantedItemIds
     Config.AutoSeasonBuyWantedItemIds = AutoSeasonBuyWantedItemIds or Config.AutoSeasonBuyWantedItemIds
     Config.AutoForgeRecipeId = AutoForge.RecipeId or Config.AutoForgeRecipeId
@@ -476,6 +526,7 @@ AutoForge.TargetMode = Config.AutoForgeTargetMode
 AutoForge.AutoDeleteNonMatch = Config.AutoForgeAutoDeleteNonMatch
 AutoForge.Profiles = Config.AutoForgeProfiles
 AutoPotion.Selected = Config.AutoPotionSelected
+AutoPetExpedition.SlotOrder = Config.PetExpeditionSlotOrder
 
 -- KONTROL SCRIPT MASTER
 _G.AutoFarm = true
@@ -495,6 +546,8 @@ _G.AutoSell = Config.AutoSell
 _G.AutoSeasonBuy = Config.AutoSeasonBuy
 _G.AutoForge = Config.AutoForge
 _G.AutoPotion = Config.AutoPotion
+_G.AutoPetExpedition = Config.AutoPetExpedition
+_G.AutoClaimPetExpedition = Config.AutoClaimPetExpedition
 _G.AutoRejoin = Config.AutoRejoin
 
 task.spawn(function()
@@ -528,6 +581,11 @@ if _G.BugonAutoPotionRuntime and _G.BugonAutoPotionRuntime.Shutdown then
     pcall(_G.BugonAutoPotionRuntime.Shutdown)
 end
 _G.BugonAutoPotionRuntime = AutoPotion
+
+if _G.BugonAutoPetExpeditionRuntime and _G.BugonAutoPetExpeditionRuntime.Token then
+    _G.BugonAutoPetExpeditionRuntime.Token.Alive = false
+end
+_G.BugonAutoPetExpeditionRuntime = AutoPetExpedition
 
 local SudutPutar = 0
 local Target = nil
@@ -1255,6 +1313,173 @@ local function GetGameEnum()
     end
     return GameEnumModule
 end
+
+function AutoPetExpedition.SetStatus(Status)
+    if AutoPetExpedition.Status ~= Status then
+        AutoPetExpedition.Status = Status
+        if AutoPetExpedition.Refresh then
+            pcall(AutoPetExpedition.Refresh)
+        end
+    end
+end
+
+function AutoPetExpedition.GetModules()
+    local Modules = GetFrameworkModule().Modules
+    local PetsExpeditionUtil = Modules.PetsExpeditionUtil
+    local PetsUtil = Modules.PetsUtil
+    local PetsAffinityUtil = Modules.PetsAffinityUtil
+    AutoPetExpedition.SlotCount = math.max(1, math.floor(tonumber(PetsExpeditionUtil.Config.SlotCount) or 4))
+    AutoPetExpedition.SlotOrder = AutoPetExpedition.NormalizeSlotOrder(AutoPetExpedition.SlotOrder,
+        AutoPetExpedition.SlotCount)
+    return PetsExpeditionUtil, PetsUtil, PetsAffinityUtil
+end
+
+function AutoPetExpedition.GetRemaining(PetsExpeditionUtil)
+    local Used = PetsExpeditionUtil:_GetEffectiveDailyCount(LocalPlayer)
+    local Limit = math.max(0, math.floor(tonumber(PetsExpeditionUtil.Config.DailyLimit) or 0))
+    return math.max(0, Limit - Used), Limit
+end
+
+function AutoPetExpedition.FindEmptySlot(PetsExpeditionUtil)
+    for _, SlotIndex in ipairs(AutoPetExpedition.SlotOrder) do
+        local SlotData = PetsExpeditionUtil:GetSlotData(LocalPlayer, SlotIndex)
+        if not (SlotData and SlotData.UID) then
+            return SlotIndex
+        end
+    end
+    return nil
+end
+
+function AutoPetExpedition.FindBestPet(PetsExpeditionUtil, PetsUtil, PetsAffinityUtil, SlotIndex)
+    local Candidates = {}
+    for _, Pet in ipairs(PetsUtil:GetOwnedPets(LocalPlayer) or {}) do
+        if Pet.UID then
+            local Success, CanDispatch = pcall(PetsExpeditionUtil.CanDispatch, PetsExpeditionUtil, LocalPlayer,
+                SlotIndex, Pet.UID)
+            if Success and CanDispatch then
+                local Definition = PetsUtil:GetPetInfo(Pet.Id) or {}
+                table.insert(Candidates, {
+                    Pet = Pet,
+                    Affinity = PetsAffinityUtil:GetAffinityLevel(Pet.Affinity or 0),
+                    Rarity = tonumber(Definition.Rarity) or 0,
+                    Sort = tonumber(Definition.Sort) or math.huge
+                })
+            end
+        end
+    end
+    table.sort(Candidates, function(Left, Right)
+        if Left.Affinity ~= Right.Affinity then
+            return Left.Affinity > Right.Affinity
+        end
+        if Left.Rarity ~= Right.Rarity then
+            return Left.Rarity > Right.Rarity
+        end
+        if Left.Sort ~= Right.Sort then
+            return Left.Sort < Right.Sort
+        end
+        return tonumber(Left.Pet.UID) < tonumber(Right.Pet.UID)
+    end)
+    return Candidates[1] and Candidates[1].Pet or nil
+end
+
+function AutoPetExpedition.WaitForSlot(PetsExpeditionUtil, SlotIndex, ExpectedUID)
+    local Deadline = os.clock() + AutoPetExpedition.ConfirmTimeout
+    while AutoPetExpedition.Token.Alive and os.clock() < Deadline do
+        local SlotData = PetsExpeditionUtil:GetSlotData(LocalPlayer, SlotIndex)
+        if ExpectedUID == nil then
+            if not (SlotData and SlotData.UID) then
+                return true
+            end
+        elseif SlotData and SlotData.UID == ExpectedUID then
+            return true
+        end
+        task.wait(0.2)
+    end
+    return false
+end
+
+function AutoPetExpedition.RunCycle()
+    local PetsExpeditionUtil, PetsUtil, PetsAffinityUtil = AutoPetExpedition.GetModules()
+    local RemoteEvent = PetsExpeditionUtil.RemoteEvent
+    if not RemoteEvent then
+        AutoPetExpedition.SetStatus("UNAVAILABLE")
+        return
+    end
+
+    if _G.AutoClaimPetExpedition then
+        for SlotIndex = 1, AutoPetExpedition.SlotCount do
+            local SlotData = PetsExpeditionUtil:GetSlotData(LocalPlayer, SlotIndex)
+            if SlotData and SlotData.UID and PetsExpeditionUtil:IsCompleted(SlotData) then
+                AutoPetExpedition.SetStatus("CLAIMING SLOT " .. tostring(SlotIndex))
+                RemoteEvent:FireServer("Claim", SlotIndex)
+                AutoPetExpedition.SetStatus(AutoPetExpedition.WaitForSlot(PetsExpeditionUtil, SlotIndex, nil) and
+                    "CLAIMED SLOT " .. tostring(SlotIndex) or "CLAIM TIMEOUT")
+                return
+            end
+        end
+    end
+
+    if not _G.AutoPetExpedition then
+        AutoPetExpedition.SetStatus("CLAIM READY")
+        return
+    end
+
+    local Remaining, Limit = AutoPetExpedition.GetRemaining(PetsExpeditionUtil)
+    if Remaining <= 0 then
+        AutoPetExpedition.SetStatus("DAILY LIMIT")
+        return
+    end
+    if #AutoPetExpedition.SlotOrder <= 0 then
+        AutoPetExpedition.SetStatus("NO ENABLED SLOT")
+        return
+    end
+
+    local SlotIndex = AutoPetExpedition.FindEmptySlot(PetsExpeditionUtil)
+    if not SlotIndex then
+        AutoPetExpedition.SetStatus("NO EMPTY SLOT")
+        return
+    end
+    local Pet = AutoPetExpedition.FindBestPet(PetsExpeditionUtil, PetsUtil, PetsAffinityUtil, SlotIndex)
+    if not Pet then
+        AutoPetExpedition.SetStatus("NO ELIGIBLE PET")
+        return
+    end
+
+    local PetUID = Pet.UID
+    AutoPetExpedition.SetStatus("DISPATCHING SLOT " .. tostring(SlotIndex))
+    RemoteEvent:FireServer("Dispatch", SlotIndex, PetUID)
+    AutoPetExpedition.SetStatus(AutoPetExpedition.WaitForSlot(PetsExpeditionUtil, SlotIndex, PetUID) and
+        "READY - " .. tostring(math.max(0, Remaining - 1)) .. "/" .. tostring(Limit) or "DISPATCH TIMEOUT")
+end
+
+function AutoPetExpedition.SetEnabled(DispatchEnabled, ClaimEnabled)
+    if DispatchEnabled ~= nil then
+        _G.AutoPetExpedition = DispatchEnabled == true
+    end
+    if ClaimEnabled ~= nil then
+        _G.AutoClaimPetExpedition = ClaimEnabled == true
+    end
+    SaveConfig()
+end
+
+task.spawn(function()
+    while AutoPetExpedition.Token.Alive do
+        task.wait(AutoPetExpedition.PollInterval)
+        if _G.AutoPetExpedition or _G.AutoClaimPetExpedition then
+            if RejoinWatchdog.BlocksAutomation() then
+                AutoPetExpedition.SetStatus("PAUSED - REJOIN")
+            else
+                local Success, ErrorMessage = pcall(AutoPetExpedition.RunCycle)
+                if not Success then
+                    AutoPetExpedition.SetStatus("ERROR")
+                    warn("[AutoPetExpedition] " .. tostring(ErrorMessage))
+                end
+            end
+        else
+            AutoPetExpedition.SetStatus("OFF")
+        end
+    end
+end)
 
 function AutoForge.GetKeyString()
     if not AutoForge.KeyString then
@@ -6081,16 +6306,19 @@ UtilityNavigation.BackgroundTransparency = 1
 UtilityNavigation.Parent = UtilityTab
 
 local DungeonTabButton = CreateButton(UtilityNavigation, "DUNGEON")
-DungeonTabButton.Size = UDim2.new(0.25, -4, 1, 0)
+DungeonTabButton.Size = UDim2.new(0.2, -4, 1, 0)
 local GroceryTabButton = CreateButton(UtilityNavigation, "GROCERY")
-GroceryTabButton.Position = UDim2.new(0.25, 2, 0, 0)
-GroceryTabButton.Size = UDim2.new(0.25, -4, 1, 0)
+GroceryTabButton.Position = UDim2.new(0.2, 2, 0, 0)
+GroceryTabButton.Size = UDim2.new(0.2, -4, 1, 0)
 local SeasonTabButton = CreateButton(UtilityNavigation, "SEASON")
-SeasonTabButton.Position = UDim2.new(0.5, 4, 0, 0)
-SeasonTabButton.Size = UDim2.new(0.25, -4, 1, 0)
+SeasonTabButton.Position = UDim2.new(0.4, 4, 0, 0)
+SeasonTabButton.Size = UDim2.new(0.2, -4, 1, 0)
 local AutoSellTabButton = CreateButton(UtilityNavigation, "AUTO SELL")
-AutoSellTabButton.Position = UDim2.new(0.75, 6, 0, 0)
-AutoSellTabButton.Size = UDim2.new(0.25, -6, 1, 0)
+AutoSellTabButton.Position = UDim2.new(0.6, 6, 0, 0)
+AutoSellTabButton.Size = UDim2.new(0.2, -4, 1, 0)
+local PetExpeditionTabButton = CreateButton(UtilityNavigation, "PETS")
+PetExpeditionTabButton.Position = UDim2.new(0.8, 8, 0, 0)
+PetExpeditionTabButton.Size = UDim2.new(0.2, -8, 1, 0)
 
 local UtilityPages = Instance.new("Frame")
 UtilityPages.Position = UDim2.fromOffset(0, 124)
@@ -6220,6 +6448,84 @@ DungeonPage.Name = "DungeonPage"
 DungeonPage.Size = UDim2.fromScale(1, 1)
 DungeonPage.BackgroundTransparency = 1
 DungeonPage.Parent = UtilityPages
+
+local PetExpeditionPage = Instance.new("Frame")
+PetExpeditionPage.Name = "PetExpeditionPage"
+PetExpeditionPage.Size = UDim2.fromScale(1, 1)
+PetExpeditionPage.BackgroundTransparency = 1
+PetExpeditionPage.Visible = false
+PetExpeditionPage.Parent = UtilityPages
+
+local AutoPetExpeditionToggle = CreateToggleRow(PetExpeditionPage, "Auto Expedition", function()
+    return _G.AutoPetExpedition
+end, function(Value)
+    AutoPetExpedition.SetEnabled(Value, nil)
+end)
+AutoPetExpeditionToggle.Name = "AutoPetExpeditionToggle"
+AutoPetExpeditionToggle.Size = UDim2.new(1, 0, 0, 34)
+
+local AutoClaimPetExpeditionToggle = CreateToggleRow(PetExpeditionPage, "Auto Claim Expedition", function()
+    return _G.AutoClaimPetExpedition
+end, function(Value)
+    AutoPetExpedition.SetEnabled(nil, Value)
+end)
+AutoClaimPetExpeditionToggle.Name = "AutoClaimPetExpeditionToggle"
+AutoClaimPetExpeditionToggle.Position = UDim2.fromOffset(0, 40)
+AutoClaimPetExpeditionToggle.Size = UDim2.new(1, 0, 0, 34)
+
+local PetExpeditionSlotOrderLabel = CreateText(PetExpeditionPage, "Slot Order", 11, Theme.Muted)
+PetExpeditionSlotOrderLabel.Position = UDim2.fromOffset(0, 82)
+PetExpeditionSlotOrderLabel.Size = UDim2.new(1, 0, 0, 18)
+
+local PetExpeditionSlotOrderInput = Instance.new("TextBox")
+PetExpeditionSlotOrderInput.Name = "PetExpeditionSlotOrderInput"
+PetExpeditionSlotOrderInput.Position = UDim2.fromOffset(0, 102)
+PetExpeditionSlotOrderInput.Size = UDim2.new(1, 0, 0, 32)
+PetExpeditionSlotOrderInput.BackgroundColor3 = Theme.Surface
+PetExpeditionSlotOrderInput.BorderSizePixel = 0
+PetExpeditionSlotOrderInput.ClearTextOnFocus = false
+PetExpeditionSlotOrderInput.Font = Enum.Font.Gotham
+PetExpeditionSlotOrderInput.PlaceholderText = "2,3,4"
+PetExpeditionSlotOrderInput.PlaceholderColor3 = Theme.Muted
+PetExpeditionSlotOrderInput.Text = AutoPetExpedition.FormatSlotOrder(AutoPetExpedition.SlotOrder)
+PetExpeditionSlotOrderInput.TextColor3 = Theme.Text
+PetExpeditionSlotOrderInput.TextSize = 12
+PetExpeditionSlotOrderInput.Parent = PetExpeditionPage
+AddCorner(PetExpeditionSlotOrderInput, 6)
+AddStroke(PetExpeditionSlotOrderInput)
+
+local PetExpeditionChanceLabel = CreateText(PetExpeditionPage, "DAILY CHANCES: --/--", 11, Theme.Text)
+PetExpeditionChanceLabel.Name = "PetExpeditionChanceLabel"
+PetExpeditionChanceLabel.Position = UDim2.fromOffset(0, 142)
+PetExpeditionChanceLabel.Size = UDim2.new(1, 0, 0, 22)
+
+local PetExpeditionStatusLabel = CreateText(PetExpeditionPage, "STATUS: OFF", 11, Theme.Muted)
+PetExpeditionStatusLabel.Name = "PetExpeditionStatusLabel"
+PetExpeditionStatusLabel.Position = UDim2.fromOffset(0, 168)
+PetExpeditionStatusLabel.Size = UDim2.new(1, 0, 0, 44)
+PetExpeditionStatusLabel.TextWrapped = true
+
+local function RefreshPetExpeditionUI()
+    if not PetExpeditionSlotOrderInput:IsFocused() then
+        PetExpeditionSlotOrderInput.Text = AutoPetExpedition.FormatSlotOrder(AutoPetExpedition.SlotOrder)
+    end
+    local Success, Remaining, Limit = pcall(function()
+        local PetsExpeditionUtil = AutoPetExpedition.GetModules()
+        return AutoPetExpedition.GetRemaining(PetsExpeditionUtil)
+    end)
+    PetExpeditionChanceLabel.Text = Success and
+        ("DAILY CHANCES: " .. tostring(Remaining) .. "/" .. tostring(Limit)) or "DAILY CHANCES: UNAVAILABLE"
+    PetExpeditionStatusLabel.Text = "STATUS: " .. tostring(AutoPetExpedition.Status)
+end
+
+PetExpeditionSlotOrderInput.FocusLost:Connect(function()
+    AutoPetExpedition.SlotOrder = AutoPetExpedition.NormalizeSlotOrder(PetExpeditionSlotOrderInput.Text,
+        AutoPetExpedition.SlotCount)
+    SaveConfig()
+    RefreshPetExpeditionUI()
+end)
+AutoPetExpedition.Refresh = RefreshPetExpeditionUI
+RefreshPetExpeditionUI()
 
 local DungeonLabel = CreateText(DungeonPage, "Dungeon", 11, Theme.Muted)
 DungeonLabel.Size = UDim2.new(1, 0, 0, 20)
@@ -6580,18 +6886,23 @@ local function SetUtilityPage(Name)
     GroceryPage.Page.Visible = Name == "Grocery"
     SeasonPage.Page.Visible = Name == "Season"
     AutoSellPage.Page.Visible = Name == "AutoSell"
+    PetExpeditionPage.Visible = Name == "Pets"
     DungeonTabButton.BackgroundColor3 = Name == "Dungeon" and Theme.Accent or Theme.Surface
     GroceryTabButton.BackgroundColor3 = Name == "Grocery" and Theme.Accent or Theme.Surface
     SeasonTabButton.BackgroundColor3 = Name == "Season" and Theme.Accent or Theme.Surface
     AutoSellTabButton.BackgroundColor3 = Name == "AutoSell" and Theme.Accent or Theme.Surface
+    PetExpeditionTabButton.BackgroundColor3 = Name == "Pets" and Theme.Accent or Theme.Surface
     if Name == "Dungeon" then
         pcall(BuildDungeonPage, true)
+    elseif Name == "Pets" then
+        RefreshPetExpeditionUI()
     end
 end
 DungeonTabButton.Activated:Connect(function() SetUtilityPage("Dungeon") end)
 GroceryTabButton.Activated:Connect(function() SetUtilityPage("Grocery") end)
 SeasonTabButton.Activated:Connect(function() SetUtilityPage("Season") end)
 AutoSellTabButton.Activated:Connect(function() SetUtilityPage("AutoSell") end)
+PetExpeditionTabButton.Activated:Connect(function() SetUtilityPage("Pets") end)
 CloseMenuDropdowns = function()
     DungeonOptions.Visible = false
     DifficultyOptions.Visible = false
