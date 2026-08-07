@@ -1278,8 +1278,18 @@ end
 
 local function GetForgeRemoteFunction()
     if not ForgeRemoteFunction then
-        ForgeRemoteFunction = ReplicatedStorage:WaitForChild("Framework"):WaitForChild("Features"):WaitForChild(
-            "ForgeSystem"):WaitForChild("ForgeRF")
+        local FrameworkRoot = ReplicatedStorage:WaitForChild("Framework")
+        local Gameplay = FrameworkRoot:FindFirstChild("Gameplay")
+        local EquipmentSystem = Gameplay and Gameplay:FindFirstChild("EquipmentSystem")
+        ForgeRemoteFunction = EquipmentSystem and EquipmentSystem:FindFirstChild("ForgeRF")
+        if not ForgeRemoteFunction then
+            local Features = FrameworkRoot:FindFirstChild("Features")
+            local ForgeSystem = Features and Features:FindFirstChild("ForgeSystem")
+            ForgeRemoteFunction = ForgeSystem and ForgeSystem:FindFirstChild("ForgeRF")
+        end
+        if not ForgeRemoteFunction then
+            error("ForgeRF unavailable")
+        end
     end
     return ForgeRemoteFunction
 end
@@ -2991,11 +3001,11 @@ local function TryAutoSellOresOnce()
             BeforeCounts[OreId] = Count
             print("[AutoSell] Attempt " .. tostring(OreId) .. " x" .. tostring(Count) .. " rarity " ..
                       tostring(Def and Def.Rarity or "?"))
-            table.insert(SellList, OreId)
+            SellList[OreId] = Count
         end
     end
 
-    if #SellList <= 0 then
+    if next(SellList) == nil then
         return
     end
 
@@ -3014,7 +3024,7 @@ local function TryAutoSellOresOnce()
 
     task.wait(0.35)
     local AfterOres = DataUtil:GetValue(LocalPlayer, {"Ores"}) or {}
-    for _, OreId in pairs(SellList) do
+    for OreId in pairs(SellList) do
         local BeforeCount = BeforeCounts[OreId] or 0
         local AfterCount = tonumber(AfterOres[OreId]) or 0
         if AfterCount <= 0 then

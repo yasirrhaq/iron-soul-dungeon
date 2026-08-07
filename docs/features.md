@@ -62,7 +62,8 @@ Brief behavior notes for `holygrail/script-v6-full-run-dg.lua`.
 
 - Ore backpack usage is total ore count compared with `ForgeUtil:GetMax(LocalPlayer)`.
 - Full backpack marks sell pending and returns to lobby after victory.
-- Lobby sell calls `ForgeRF:InvokeServer("Sell", SellList)` for configured ores.
+- Lobby sell resolves `Framework.Gameplay.EquipmentSystem.ForgeRF` first, with the previous Features path as fallback.
+- Sell payload maps each configured ore ID to its full currently owned count, requesting the maximum available amount per ore.
 - `Sell Max Rarity` controls which `AUTO` ores qualify.
 - Auto Sell ore list is ordered by ore level descending, then rarity, then native game sort order.
 - Every ore definition has `AUTO`, `SELL`, and `KEEP` modes; `KEEP` wins over all other rules.
