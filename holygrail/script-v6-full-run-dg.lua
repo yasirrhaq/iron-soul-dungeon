@@ -169,7 +169,6 @@ local Config = {
     UndergroundMode = true,
     AutoReplay = true,
     AutoGiveup = true,
-    DisableAutoSkillAnimation = false,
     PerfectForge = true,
     AutoBuy = false,
     AutoSell = false,
@@ -436,7 +435,6 @@ local function LoadConfig()
     Config.UndergroundMode = Config.UndergroundMode ~= false
     Config.AutoReplay = Config.AutoReplay ~= false
     Config.AutoGiveup = Config.AutoGiveup ~= false
-    Config.DisableAutoSkillAnimation = Config.DisableAutoSkillAnimation == true
     Config.PerfectForge = Config.PerfectForge ~= false
     Config.AutoBuy = Config.AutoBuy == true
     Config.AutoSell = Config.AutoSell == true
@@ -482,7 +480,6 @@ local function SaveConfig()
     Config.UndergroundMode = _G.UndergroundMode
     Config.AutoReplay = _G.AutoReplay
     Config.AutoGiveup = _G.AutoGiveup
-    Config.DisableAutoSkillAnimation = _G.DisableAutoSkillAnimation
     Config.PerfectForge = _G.PerfectForge
     Config.AutoBuy = _G.AutoBuy
     Config.AutoSell = _G.AutoSell
@@ -542,7 +539,6 @@ _G.KillAuraRadius = _G.TinggiMelayang + 40
 _G.AutoProgressStage = true
 _G.AutoReplay = Config.AutoReplay -- Mengontrol status replay otomatis secara global
 _G.AutoGiveup = Config.AutoGiveup
-_G.DisableAutoSkillAnimation = Config.DisableAutoSkillAnimation
 _G.SemiGodMode = true
 _G.PerfectForge = Config.PerfectForge
 _G.AutoBuy = Config.AutoBuy
@@ -3549,331 +3545,6 @@ local LastWeaponSwitchAt = 0
 local LastWeaponSwitchAttemptAt = 0
 local NoSwitchSkillsReadySince = nil
 local IsSwitchPending = false
-AutoSkillVisualSuppression = {
-    Active = false,
-    SessionId = 0,
-    CaptureDeadline = 0,
-    Timeout = 8,
-    Tracks = {},
-    Animator = nil,
-    AnimationConnection = nil,
-    WorkspaceConnection = nil,
-    CharacterConnection = nil,
-    RenderConnection = nil,
-    CharacterVersion = 0,
-    LastScanAt = 0,
-    LastTrackSeenAt = 0,
-    VisualStates = {},
-    VisualClasses = {
-        ParticleEmitter = true,
-        Trail = true,
-        Beam = true,
-        Smoke = true,
-        Fire = true,
-        Sparkles = true,
-        Highlight = true,
-        PointLight = true,
-        SpotLight = true,
-        SurfaceLight = true,
-        Decal = true,
-        Texture = true
-    }
-}
-
-function AutoSkillVisualSuppression.IsVisual(InstanceValue)
-    return InstanceValue and (InstanceValue:IsA("BasePart") or
-               AutoSkillVisualSuppression.VisualClasses[InstanceValue.ClassName] == true)
-end
-
-function AutoSkillVisualSuppression.GetWorldPosition(InstanceValue)
-    local Current = InstanceValue
-    local Model = nil
-    while Current and Current ~= workspace do
-        if Current:IsA("Attachment") then
-            return Current.WorldPosition
-        end
-        if Current:IsA("BasePart") then
-            return Current.Position
-        end
-        if not Model and Current:IsA("Model") then
-            Model = Current
-        end
-        Current = Current.Parent
-    end
-    if Model then
-        local Success, Pivot = pcall(Model.GetPivot, Model)
-        return Success and Pivot.Position or nil
-    end
-    return nil
-end
-
-function AutoSkillVisualSuppression.HasEffectName(InstanceValue)
-    local Current = InstanceValue
-    for _ = 1, 6 do
-        if not Current or Current == workspace then
-            break
-        end
-        local Name = string.lower(Current.Name or "")
-        if string.find(Name, "skill") or string.find(Name, "effect") or string.find(Name, "vfx") or
-            string.find(Name, "ability") or string.find(Name, "fx") then
-            return true
-        end
-        Current = Current.Parent
-    end
-    return false
-end
-
-function AutoSkillVisualSuppression.IsScopedVisual(InstanceValue)
-    if not AutoSkillVisualSuppression.IsVisual(InstanceValue) then
-        return false
-    end
-
-    local Character = LocalPlayer.Character
-    local Camera = workspace.CurrentCamera
-    if Character and InstanceValue:IsDescendantOf(Character) then
-        return not InstanceValue:IsA("BasePart") or AutoSkillVisualSuppression.HasEffectName(InstanceValue)
-    end
-    if Camera and InstanceValue:IsDescendantOf(Camera) then
-        return true
-    end
-
-    local WorldEnemys = workspace:FindFirstChild("WorldEnemys")
-    if WorldEnemys and InstanceValue:IsDescendantOf(WorldEnemys) then
-        return false
-    end
-    if not InstanceValue:IsDescendantOf(workspace) or not AutoSkillVisualSuppression.HasEffectName(InstanceValue) then
-        return false
-    end
-
-    local VisualPosition = AutoSkillVisualSuppression.GetWorldPosition(InstanceValue)
-    if not VisualPosition then
-        return false
-    end
-    local CharacterRoot = Character and Character:FindFirstChild("HumanoidRootPart")
-    local TargetRoot = Target and (Target:FindFirstChild("HumanoidRootPart") or Target.PrimaryPart)
-    local MaximumDistance = math.max(20, tonumber(_G.KillAuraRadius) or 60)
-    return (CharacterRoot and (VisualPosition - CharacterRoot.Position).Magnitude <= MaximumDistance) or
-               (TargetRoot and (VisualPosition - TargetRoot.Position).Magnitude <= MaximumDistance)
-end
-
-function AutoSkillVisualSuppression.HideVisual(InstanceValue)
-    if not AutoSkillVisualSuppression.Active or AutoSkillVisualSuppression.VisualStates[InstanceValue] or
-        not AutoSkillVisualSuppression.IsScopedVisual(InstanceValue) then
-        return
-    end
-
-    pcall(function()
-        local Property = "Enabled"
-        if InstanceValue:IsA("BasePart") then
-            Property = "LocalTransparencyModifier"
-        elseif InstanceValue:IsA("Decal") or InstanceValue:IsA("Texture") then
-            Property = "Transparency"
-        end
-        local State = {Property = Property, Value = InstanceValue[Property], Guard = nil}
-        AutoSkillVisualSuppression.VisualStates[InstanceValue] = State
-        if Property == "Enabled" then
-            InstanceValue.Enabled = false
-        elseif Property == "LocalTransparencyModifier" then
-            InstanceValue.LocalTransparencyModifier = 1
-        else
-            InstanceValue.Transparency = 1
-        end
-        if InstanceValue:IsA("ParticleEmitter") then
-            InstanceValue:Clear()
-        end
-        State.Guard = InstanceValue:GetPropertyChangedSignal(Property):Connect(function()
-            local HiddenValue = Property == "Enabled" and false or 1
-            if AutoSkillVisualSuppression.Active and InstanceValue.Parent and InstanceValue[Property] ~= HiddenValue then
-                InstanceValue[Property] = HiddenValue
-                if InstanceValue:IsA("ParticleEmitter") then
-                    InstanceValue:Clear()
-                end
-            end
-        end)
-    end)
-end
-
-function AutoSkillVisualSuppression.IsSkillTrack(Track)
-    local Name = string.lower(Track.Name or "")
-    local Priority = Track.Priority
-    return string.find(Name, "skill") ~= nil or Priority == Enum.AnimationPriority.Action or
-               Priority == Enum.AnimationPriority.Action2 or Priority == Enum.AnimationPriority.Action3 or
-               Priority == Enum.AnimationPriority.Action4
-end
-
-function AutoSkillVisualSuppression.HideTrack(Track)
-    if not AutoSkillVisualSuppression.Tracks[Track] then
-        AutoSkillVisualSuppression.Tracks[Track] = Track.WeightCurrent
-    end
-    pcall(function()
-        Track:AdjustWeight(0, 0)
-    end)
-end
-
-function AutoSkillVisualSuppression.SuppressPlayingTracks()
-    local Animator = AutoSkillVisualSuppression.Animator
-    if not Animator or not Animator.Parent then
-        return false
-    end
-    local HasTrack = false
-    for _, Track in ipairs(Animator:GetPlayingAnimationTracks()) do
-        if AutoSkillVisualSuppression.IsSkillTrack(Track) then
-            HasTrack = true
-            AutoSkillVisualSuppression.LastTrackSeenAt = os.clock()
-            AutoSkillVisualSuppression.HideTrack(Track)
-        end
-    end
-    return HasTrack
-end
-
-function AutoSkillVisualSuppression.ScanRoot(Root)
-    if not Root then
-        return
-    end
-    AutoSkillVisualSuppression.HideVisual(Root)
-    for _, InstanceValue in ipairs(Root:GetDescendants()) do
-        AutoSkillVisualSuppression.HideVisual(InstanceValue)
-    end
-end
-
-function AutoSkillVisualSuppression.ScanEffectRoots()
-    local Character = LocalPlayer.Character
-    AutoSkillVisualSuppression.ScanRoot(Character)
-    AutoSkillVisualSuppression.ScanRoot(workspace.CurrentCamera)
-
-    local WorldEnemys = workspace:FindFirstChild("WorldEnemys")
-    for _, Root in ipairs(workspace:GetChildren()) do
-        if Root ~= Character and Root ~= WorldEnemys and AutoSkillVisualSuppression.HasEffectName(Root) then
-            AutoSkillVisualSuppression.ScanRoot(Root)
-        end
-    end
-end
-
-function AutoSkillVisualSuppression.Finish(SessionId, RestoreTrack)
-    if SessionId and SessionId ~= AutoSkillVisualSuppression.SessionId then
-        return
-    end
-    AutoSkillVisualSuppression.Active = false
-
-    if AutoSkillVisualSuppression.RenderConnection then
-        AutoSkillVisualSuppression.RenderConnection:Disconnect()
-        AutoSkillVisualSuppression.RenderConnection = nil
-    end
-    if RestoreTrack then
-        for Track, Weight in pairs(AutoSkillVisualSuppression.Tracks) do
-            if Track.IsPlaying then
-                pcall(Track.AdjustWeight, Track, Weight, 0.05)
-            end
-        end
-    end
-    table.clear(AutoSkillVisualSuppression.Tracks)
-
-    for InstanceValue, State in pairs(AutoSkillVisualSuppression.VisualStates) do
-        if State.Guard then
-            State.Guard:Disconnect()
-        end
-        pcall(function()
-            if InstanceValue:IsA("ParticleEmitter") then
-                InstanceValue:Clear()
-            end
-            if InstanceValue.Parent then
-                InstanceValue[State.Property] = State.Value
-            end
-        end)
-    end
-    table.clear(AutoSkillVisualSuppression.VisualStates)
-end
-
-function AutoSkillVisualSuppression.OnAnimationPlayed(Track)
-    if not AutoSkillVisualSuppression.Active or os.clock() > AutoSkillVisualSuppression.CaptureDeadline then
-        return
-    end
-    if not AutoSkillVisualSuppression.IsSkillTrack(Track) then
-        return
-    end
-    AutoSkillVisualSuppression.LastTrackSeenAt = os.clock()
-    AutoSkillVisualSuppression.HideTrack(Track)
-end
-
-function AutoSkillVisualSuppression.BindCharacter(Character)
-    AutoSkillVisualSuppression.CharacterVersion = AutoSkillVisualSuppression.CharacterVersion + 1
-    local CharacterVersion = AutoSkillVisualSuppression.CharacterVersion
-    if AutoSkillVisualSuppression.AnimationConnection then
-        AutoSkillVisualSuppression.AnimationConnection:Disconnect()
-        AutoSkillVisualSuppression.AnimationConnection = nil
-    end
-
-    task.spawn(function()
-        local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
-        Humanoid = Humanoid or (Character and Character:WaitForChild("Humanoid", 5))
-        local Animator = Humanoid and (Humanoid:FindFirstChildOfClass("Animator") or Humanoid:WaitForChild("Animator", 5))
-        if CharacterVersion ~= AutoSkillVisualSuppression.CharacterVersion or not Animator then
-            return
-        end
-        AutoSkillVisualSuppression.Animator = Animator
-        AutoSkillVisualSuppression.AnimationConnection = Animator.AnimationPlayed:Connect(
-            AutoSkillVisualSuppression.OnAnimationPlayed)
-    end)
-end
-
-function AutoSkillVisualSuppression.Begin(Key)
-    if not _G.DisableAutoSkillAnimation then
-        return
-    end
-    AutoSkillVisualSuppression.Finish(nil, true)
-    AutoSkillVisualSuppression.SessionId = AutoSkillVisualSuppression.SessionId + 1
-    AutoSkillVisualSuppression.Active = true
-    AutoSkillVisualSuppression.CaptureDeadline = os.clock() + 0.75
-    AutoSkillVisualSuppression.LastTrackSeenAt = os.clock()
-    AutoSkillVisualSuppression.LastScanAt = 0
-    local SessionId = AutoSkillVisualSuppression.SessionId
-
-    AutoSkillVisualSuppression.ScanEffectRoots()
-    AutoSkillVisualSuppression.RenderConnection = RunService.RenderStepped:Connect(function()
-        if not AutoSkillVisualSuppression.Active or SessionId ~= AutoSkillVisualSuppression.SessionId then
-            return
-        end
-        local CurrentTime = os.clock()
-        local HasTrack = AutoSkillVisualSuppression.SuppressPlayingTracks()
-        if CurrentTime - AutoSkillVisualSuppression.LastScanAt >= 0.05 then
-            AutoSkillVisualSuppression.LastScanAt = CurrentTime
-            AutoSkillVisualSuppression.ScanEffectRoots()
-        end
-        if CurrentTime > AutoSkillVisualSuppression.CaptureDeadline and not HasTrack and
-            CurrentTime - AutoSkillVisualSuppression.LastTrackSeenAt >= 0.25 then
-            AutoSkillVisualSuppression.Finish(SessionId, false)
-        end
-    end)
-
-    task.delay(AutoSkillVisualSuppression.Timeout, function()
-        AutoSkillVisualSuppression.Finish(SessionId, true)
-    end)
-end
-
-function AutoSkillVisualSuppression.SetEnabled(Value)
-    if not Value then
-        AutoSkillVisualSuppression.Finish(nil, true)
-    end
-end
-
-AutoSkillVisualSuppression.WorkspaceConnection = workspace.DescendantAdded:Connect(function(InstanceValue)
-    if not AutoSkillVisualSuppression.Active then
-        return
-    end
-    local SessionId = AutoSkillVisualSuppression.SessionId
-    task.defer(function()
-        if AutoSkillVisualSuppression.Active and SessionId == AutoSkillVisualSuppression.SessionId then
-            AutoSkillVisualSuppression.HideVisual(InstanceValue)
-        end
-    end)
-end)
-AutoSkillVisualSuppression.CharacterConnection = LocalPlayer.CharacterAdded:Connect(function(Character)
-    AutoSkillVisualSuppression.Finish(nil, false)
-    AutoSkillVisualSuppression.BindCharacter(Character)
-end)
-if LocalPlayer.Character then
-    AutoSkillVisualSuppression.BindCharacter(LocalPlayer.Character)
-end
 
 local function DebugSkill(message)
     if not SkillDebug then
@@ -4056,7 +3727,6 @@ task.spawn(function()
                         NoSwitchSkillsReadySince = nil
                         IsSwitchPending = false
                         DebugSkill("PRESS " .. Key .. " -> " .. SkillButtonNames[Key])
-                        AutoSkillVisualSuppression.Begin(Key)
                         PressKey(Key)
                         LastUsed[Key] = os.clock()
                         PressedSkill = true
@@ -6515,14 +6185,6 @@ end, function(Value)
         RejoinWatchdog.LastFallbackScanAt = -math.huge
         RejoinWatchdog.RefreshCachedTargets(true)
     end
-    SaveConfig()
-end)
-
-CreateToggleRow(FarmTab, "Disable Auto Skill Animation", function()
-    return _G.DisableAutoSkillAnimation
-end, function(Value)
-    _G.DisableAutoSkillAnimation = Value
-    AutoSkillVisualSuppression.SetEnabled(Value)
     SaveConfig()
 end)
 
