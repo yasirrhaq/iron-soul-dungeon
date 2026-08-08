@@ -26,6 +26,8 @@ Brief behavior notes for `holygrail/script-v6-full-run-dg.lua`.
 - Character orbits target every heartbeat using configured height and radius.
 - Melee attacks fire through `VirtualUser` and equipped tool activation when target stays inside kill-aura range.
 - Auto skill loop presses `G`, `R`, `E`, then `Q` by priority when UI skill cooldown state says ready.
+- Farm toggle `Disable Auto Skill Animation` defaults off and persists. When enabled, script-triggered skills keep their animation tracks running at zero visual weight so marker-driven damage can continue, while scoped local particles, trails, beams, smoke, fire, sparkles, and highlights are hidden for that cast.
+- Manual skills remain unchanged. Unsafe or unidentifiable VFX fail open and stay visible rather than risking gameplay behavior.
 - Weapon switch presses `C` only when blocking skills are not ready and switch UI is off cooldown.
 
 ## Targets
