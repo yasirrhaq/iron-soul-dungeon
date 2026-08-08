@@ -21,14 +21,14 @@ Add an optional persisted setting that hides character skill animations and loca
 ## Character Animation
 
 - Keep each matched skill animation track playing so keyframe markers and client-side skill callbacks can still run.
-- Hide body movement with zero animation weight instead of calling `AnimationTrack:Stop()`.
+- Hide body movement by forcing zero animation weight every rendered frame instead of calling `AnimationTrack:Stop()`.
 - Keep `IsSkillAnimating()` aware of the hidden track so auto-skill does not overlap casts.
 - Do not modify non-skill locomotion, enemy, or manual-cast tracks.
 
 ## Skill VFX
 
-- During the active auto-skill session, watch local character, equipped tool, camera, and known local effect containers for newly added visual instances.
-- Suppress only visual properties on matched `ParticleEmitter`, `Trail`, `Beam`, `Smoke`, `Fire`, `Sparkles`, and `Highlight` instances.
+- During the active auto-skill session, watch and repeatedly scan local character, equipped tool, camera, and known local effect containers so pooled instances are suppressed too.
+- Suppress only visual properties on matched particles, trails, beams, smoke, fire, sparkles, lights, highlights, decals, textures, and effect parts.
 - Clear already emitted particles when supported.
 - Preserve original properties and restore them when the session ends.
 - Leave an effect visible when ownership cannot be scoped safely; never disable scripts, remotes, hitboxes, attachments, sounds, or gameplay objects.
