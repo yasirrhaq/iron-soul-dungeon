@@ -193,6 +193,7 @@ local Config = {
     AutoRejoin = true,
     LobbyPlaceId = 0,
     RecoveryPending = false,
+    DeathRestartPending = false,
     RejoinAttemptTimestamps = {},
     OreSellModes = CopyMap(DefaultOreSellModes)
 }
@@ -460,6 +461,7 @@ local function LoadConfig()
     Config.AutoRejoin = Config.AutoRejoin ~= false
     Config.LobbyPlaceId = math.max(0, math.floor(tonumber(Config.LobbyPlaceId) or 0))
     Config.RecoveryPending = Config.RecoveryPending == true
+    Config.DeathRestartPending = Config.DeathRestartPending == true
     if type(Config.RejoinAttemptTimestamps) ~= "table" then
         Config.RejoinAttemptTimestamps = {}
     else
@@ -648,6 +650,20 @@ local AutoStartRetryDelay = 3.0
 local AutoStartMaxPlayers = 1
 local AutoStartPending = false
 local IsInLobby = nil
+AutoGiveupFlow = {
+    ExitRetryDelay = 1.5,
+    ReturnRetryDelay = 3.0,
+    LastExitRequestAt = -math.huge,
+    LastReturnRequestAt = -math.huge,
+    AwaitingSettlement = false,
+    Remote = nil
+}
+
+LocalPlayer.CharacterAdded:Connect(function()
+    AutoGiveupFlow.LastExitRequestAt = -math.huge
+    AutoGiveupFlow.LastReturnRequestAt = -math.huge
+    AutoGiveupFlow.AwaitingSettlement = false
+end)
 
 if _G.BugonAutoForgeToken then
     _G.BugonAutoForgeToken.Alive = false
@@ -2944,6 +2960,10 @@ local function TryAutoStartSoloDungeon()
     GetGameMatchRemoteEvent():FireServer("CreatRoom", AutoStartWorldId, AutoStartDifficulty, AutoStartMaxPlayers)
     LastAutoStartDungeonAt = os.clock()
     AutoStartPending = false
+    if Config.DeathRestartPending then
+        Config.DeathRestartPending = false
+        SaveConfig()
+    end
     print("[AutoStart] Create room fired")
     return true
 end
@@ -2964,6 +2984,35 @@ local function QueueAutoStartSoloDungeon()
     end
     print("[AutoStart] Queued solo dungeon restart")
     TryAutoStartSoloDungeon()
+end
+
+function AutoGiveupFlow.ProcessLobbyRestart()
+    if not Config.DeathRestartPending or RejoinWatchdog.BlocksAutomation() or not IsInLobby or not IsInLobby() then
+        return
+    end
+    if not _G.AutoFarm or not _G.AutoReplay then
+        Config.DeathRestartPending = false
+        SaveConfig()
+        return
+    end
+    if AutoStartPending then
+        return
+    end
+
+    local Success, Current, Max = pcall(GetOreBackpackUsage)
+    if not Success then
+        return
+    end
+    if Max > 0 and Current >= Max then
+        if _G.AutoSell then
+            SellPending = true
+            SellPendingReason = "death backpack full"
+        end
+        return
+    end
+
+    print("[Auto Giveup] Lobby reached; queueing dungeon restart")
+    QueueAutoStartSoloDungeon()
 end
 
 local function RequestAutoSellContext()
@@ -3416,6 +3465,7 @@ task.spawn(function()
             RejoinWatchdog.Log("WATCHDOG_ERROR", ErrorMessage)
         end
         pcall(RejoinWatchdog.ProcessPostRejoin)
+        pcall(AutoGiveupFlow.ProcessLobbyRestart)
     end
 end)
 
@@ -4458,31 +4508,72 @@ local function HasVisibleText(guiObjects, textPattern)
     return false
 end
 
-local function ScanAndHandleDeath()
-    local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
-    if not PlayerGui then
-        return
-    end
-    local SemuaGui = PlayerGui:GetDescendants()
-    if not HasVisibleText(SemuaGui, "you died") then
-        return
-    end
-
-    local GiveUpButton = FindVisibleButtonByText(SemuaGui, "give up")
-    if GiveUpButton then
-        print("[Auto Death] You died detected. Clicking Give up...")
-        Target = nil
-        EksekusiKlikReplay(GiveUpButton)
-        task.wait(5.0)
-    end
-end
-
 local function GetReturnToLobbyButton()
     local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
     local ResultGui = PlayerGui and PlayerGui:FindFirstChild("ResultGui")
     local ScreenSettlement = ResultGui and ResultGui:FindFirstChild("ScreenSettlement")
     local BtnGroup = ScreenSettlement and ScreenSettlement:FindFirstChild("BtnGroup")
     return BtnGroup and BtnGroup:FindFirstChild("ReturnToLobbyBtn")
+end
+
+function AutoGiveupFlow.GetRemote()
+    if not AutoGiveupFlow.Remote then
+        local Remotes = ReplicatedStorage:FindFirstChild("Remotes")
+        AutoGiveupFlow.Remote = Remotes and Remotes:FindFirstChild("GamePlayerRE")
+    end
+    return AutoGiveupFlow.Remote
+end
+
+local function ScanAndHandleDeath()
+    if not _G.AutoGiveup or IsInLobby() then
+        return false
+    end
+    local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not PlayerGui then
+        return false
+    end
+    local SemuaGui = PlayerGui:GetDescendants()
+    local Character = LocalPlayer.Character
+    local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
+    local ReturnButton = GetReturnToLobbyButton()
+    local ReturnButtonVisible = ReturnButton and IsGuiVisible(ReturnButton)
+    local IsDead = (Humanoid and Humanoid.Health <= 0) or HasVisibleText(SemuaGui, "you died")
+    if not IsDead and not (AutoGiveupFlow.AwaitingSettlement and ReturnButtonVisible) then
+        return false
+    end
+
+    Target = nil
+    TargetKind = nil
+    IsEgg = false
+    local CurrentTime = os.clock()
+    if AutoGiveupFlow.AwaitingSettlement and ReturnButtonVisible then
+        if CurrentTime - AutoGiveupFlow.LastReturnRequestAt >= AutoGiveupFlow.ReturnRetryDelay then
+            AutoGiveupFlow.LastReturnRequestAt = CurrentTime
+            Config.DeathRestartPending = _G.AutoFarm and _G.AutoReplay
+            SaveConfig()
+            print("[Auto Giveup] Settlement ready; returning to lobby")
+            EksekusiKlikReplay(ReturnButton)
+        end
+        return true
+    end
+
+    if CurrentTime - AutoGiveupFlow.LastExitRequestAt >= AutoGiveupFlow.ExitRetryDelay then
+        AutoGiveupFlow.LastExitRequestAt = CurrentTime
+        local Remote = AutoGiveupFlow.GetRemote()
+        if Remote then
+            print("[Auto Giveup] Dead detected; requesting ExitSettlement")
+            AutoGiveupFlow.AwaitingSettlement = true
+            Remote:FireServer("ExitSettlement")
+        else
+            local GiveUpButton = FindVisibleButtonByText(SemuaGui, "give up")
+            if GiveUpButton then
+                print("[Auto Giveup] GamePlayerRE missing; clicking Give Up fallback")
+                AutoGiveupFlow.AwaitingSettlement = true
+                EksekusiKlikReplay(GiveUpButton)
+            end
+        end
+    end
+    return true
 end
 
 local function ScanAndExecuteReplay()
@@ -4559,7 +4650,14 @@ end
 task.spawn(function()
     while true do
         if _G.AutoFarm and not RejoinWatchdog.BlocksAutomation() then
-            if IsInLobby() then
+            local DeathHandled = false
+            if _G.AutoGiveup and not IsInLobby() then
+                local Success, Result = pcall(ScanAndHandleDeath)
+                DeathHandled = Success and Result == true
+            end
+            if DeathHandled then
+                task.wait(0.2)
+            elseif IsInLobby() then
                 Target = nil
                 TargetKind = nil
                 IsEgg = false
@@ -4582,7 +4680,6 @@ task.spawn(function()
                     Target = nil
                     TargetKind = nil
                     IsEgg = false
-                    pcall(ScanAndHandleDeath)
 
                     if _G.AutoReplay then
                         pcall(ScanAndExecuteReplay)
