@@ -56,7 +56,8 @@ Brief behavior notes for `holygrail/script-v6-full-run-dg.lua`.
 - Victory detection scans visible GUI text for `victory`.
 - If backpack is not full, script waits reward-settle delay, then clicks visible Play Again / Replay / Restart UI.
 - If backpack is full, script clicks `ResultGui.ScreenSettlement.BtnGroup.ReturnToLobbyBtn` instead of replay.
-- Auto Giveup checks death before target acquisition, then calls `Remotes.GamePlayerRE` with `ExitSettlement` instead of depending on the Give Up button path.
+- Auto Giveup checks `LocalPlayer:GetAttribute("RemainLife") <= 0` before target acquisition, then activates `BattleHUD.PlayerRevive.ReviveFrame.Revive.ExitBtn`.
+- If the real Exit button does not open settlement, Auto Giveup retries through `Remotes.GamePlayerRE:FireServer("ExitSettlement")`.
 - After failed settlement opens, Auto Giveup always clicks `ResultGui.ScreenSettlement.BtnGroup.ReturnToLobbyBtn`.
 - When Auto Farm and Auto Replay are enabled, death restart intent persists across lobby teleport/AutoExec and queues the saved solo dungeon again. Full backpacks wait for enabled Auto Sell first.
 

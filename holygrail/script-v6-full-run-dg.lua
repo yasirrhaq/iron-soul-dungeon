@@ -656,6 +656,7 @@ AutoGiveupFlow = {
     LastExitRequestAt = -math.huge,
     LastReturnRequestAt = -math.huge,
     AwaitingSettlement = false,
+    ExitButtonTried = false,
     Remote = nil
 }
 
@@ -663,6 +664,7 @@ LocalPlayer.CharacterAdded:Connect(function()
     AutoGiveupFlow.LastExitRequestAt = -math.huge
     AutoGiveupFlow.LastReturnRequestAt = -math.huge
     AutoGiveupFlow.AwaitingSettlement = false
+    AutoGiveupFlow.ExitButtonTried = false
 end)
 
 if _G.BugonAutoForgeToken then
@@ -4468,52 +4470,21 @@ local function HasVictoryUi(guiObjects)
     return false
 end
 
-local function FindVisibleButtonByText(guiObjects, textPattern)
-    for i = 1, #guiObjects do
-        local obj = guiObjects[i]
-        if obj:IsA("TextButton") then
-            local nameLower = string.lower(obj.Name)
-            local textLower = string.lower(obj.Text)
-            if IsGuiVisible(obj) and (string.find(nameLower, textPattern) or string.find(textLower, textPattern)) then
-                return obj
-            end
-        elseif obj:IsA("ImageButton") then
-            local nameLower = string.lower(obj.Name)
-            if IsGuiVisible(obj) and string.find(nameLower, textPattern) then
-                return obj
-            end
-        elseif obj:IsA("TextLabel") then
-            local textLower = string.lower(obj.Text)
-            if IsGuiVisible(obj) and string.find(textLower, textPattern) then
-                local parentButton = obj:FindFirstAncestorWhichIsA("TextButton") or
-                                         obj:FindFirstAncestorWhichIsA("ImageButton") or obj.Parent
-                if IsGuiVisible(parentButton) then
-                    return parentButton
-                end
-            end
-        end
-    end
-    return nil
-end
-
-local function HasVisibleText(guiObjects, textPattern)
-    for i = 1, #guiObjects do
-        local obj = guiObjects[i]
-        if obj:IsA("TextLabel") or obj:IsA("TextButton") then
-            if IsGuiVisible(obj) and string.find(string.lower(obj.Text), textPattern) then
-                return true
-            end
-        end
-    end
-    return false
-end
-
 local function GetReturnToLobbyButton()
     local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
     local ResultGui = PlayerGui and PlayerGui:FindFirstChild("ResultGui")
     local ScreenSettlement = ResultGui and ResultGui:FindFirstChild("ScreenSettlement")
     local BtnGroup = ScreenSettlement and ScreenSettlement:FindFirstChild("BtnGroup")
     return BtnGroup and BtnGroup:FindFirstChild("ReturnToLobbyBtn")
+end
+
+local function GetGiveUpExitButton()
+    local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    local BattleHUD = PlayerGui and PlayerGui:FindFirstChild("BattleHUD")
+    local PlayerRevive = BattleHUD and BattleHUD:FindFirstChild("PlayerRevive")
+    local ReviveFrame = PlayerRevive and PlayerRevive:FindFirstChild("ReviveFrame")
+    local Revive = ReviveFrame and ReviveFrame:FindFirstChild("Revive")
+    return Revive and Revive:FindFirstChild("ExitBtn")
 end
 
 function AutoGiveupFlow.GetRemote()
@@ -4532,12 +4503,10 @@ local function ScanAndHandleDeath()
     if not PlayerGui then
         return false
     end
-    local SemuaGui = PlayerGui:GetDescendants()
-    local Character = LocalPlayer.Character
-    local Humanoid = Character and Character:FindFirstChildOfClass("Humanoid")
     local ReturnButton = GetReturnToLobbyButton()
     local ReturnButtonVisible = ReturnButton and IsGuiVisible(ReturnButton)
-    local IsDead = (Humanoid and Humanoid.Health <= 0) or HasVisibleText(SemuaGui, "you died")
+    local RemainLife = LocalPlayer:GetAttribute("RemainLife")
+    local IsDead = type(RemainLife) == "number" and RemainLife <= 0
     if not IsDead and not (AutoGiveupFlow.AwaitingSettlement and ReturnButtonVisible) then
         return false
     end
@@ -4559,17 +4528,18 @@ local function ScanAndHandleDeath()
 
     if CurrentTime - AutoGiveupFlow.LastExitRequestAt >= AutoGiveupFlow.ExitRetryDelay then
         AutoGiveupFlow.LastExitRequestAt = CurrentTime
-        local Remote = AutoGiveupFlow.GetRemote()
-        if Remote then
-            print("[Auto Giveup] Dead detected; requesting ExitSettlement")
+        local ExitButton = GetGiveUpExitButton()
+        if not AutoGiveupFlow.ExitButtonTried and ExitButton then
+            print("[Auto Giveup] Dead detected; activating PlayerRevive ExitBtn")
+            AutoGiveupFlow.ExitButtonTried = true
             AutoGiveupFlow.AwaitingSettlement = true
-            Remote:FireServer("ExitSettlement")
+            EksekusiKlikReplay(ExitButton)
         else
-            local GiveUpButton = FindVisibleButtonByText(SemuaGui, "give up")
-            if GiveUpButton then
-                print("[Auto Giveup] GamePlayerRE missing; clicking Give Up fallback")
+            local Remote = AutoGiveupFlow.GetRemote()
+            if Remote then
+                print("[Auto Giveup] ExitBtn did not open settlement; requesting ExitSettlement fallback")
                 AutoGiveupFlow.AwaitingSettlement = true
-                EksekusiKlikReplay(GiveUpButton)
+                Remote:FireServer("ExitSettlement")
             end
         end
     end

@@ -7,8 +7,9 @@ When Auto Giveup is enabled, a dead dungeon character exits the death screen, al
 ## Death Flow
 
 - Check death before target acquisition so living enemies cannot block Give Up handling.
-- Require `_G.AutoGiveup`, active dungeon state, and either `Humanoid.Health <= 0` or visible death text.
-- Fire `ReplicatedStorage.Remotes.GamePlayerRE:FireServer("ExitSettlement")` with a bounded retry interval.
+- Require `_G.AutoGiveup`, active dungeon state, and `LocalPlayer:GetAttribute("RemainLife") <= 0`.
+- Activate exact `BattleHUD.PlayerRevive.ReviveFrame.Revive.ExitBtn` first so the original client handler performs the exit.
+- If settlement does not open, fire `ReplicatedStorage.Remotes.GamePlayerRE:FireServer("ExitSettlement")` on the next bounded retry.
 - Do not fire `TaskRE`; it is client task telemetry after `ScreenSettlement` opens.
 - Wait for exact `ResultGui.ScreenSettlement.BtnGroup.ReturnToLobbyBtn`, persist restart intent, then click it with the existing GUI activation helper.
 
@@ -22,6 +23,6 @@ When Auto Giveup is enabled, a dead dungeon character exits the death screen, al
 
 ## Safety
 
-- Send at most one ExitSettlement request per retry interval and one lobby click per click interval.
+- Send at most one Exit button activation or ExitSettlement fallback per retry interval and one lobby click per click interval.
 - While death flow is active, skip target movement, portal progression, replay scanning, and attacks.
 - Reset runtime request state after respawn.

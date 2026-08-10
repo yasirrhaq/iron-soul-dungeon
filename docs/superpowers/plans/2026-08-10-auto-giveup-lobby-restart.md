@@ -13,7 +13,7 @@
 - Add `DeathRestartPending` config default and normalization.
 - Add global `AutoGiveupFlow` state to avoid V6 top-level local-register pressure.
 - Process pending restart in lobby through existing auto-start and auto-sell flows.
-- Rewrite death scan to use health/text detection, direct `ExitSettlement`, exact Return to Lobby button, and bounded retries.
+- Rewrite death scan to use `RemainLife`, exact PlayerRevive `ExitBtn`, direct `ExitSettlement` fallback, exact Return to Lobby button, and bounded retries.
 - Move death scan before target acquisition.
 
 ## Task 3: Documentation And Verification

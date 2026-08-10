@@ -14,7 +14,9 @@ Assert-Contains 'AwaitingSettlement\s*=\s*false' 'Missing settlement transition 
 Assert-Contains 'Remotes.*GamePlayerRE' 'Missing GamePlayerRE resolution'
 Assert-Contains 'FireServer\("ExitSettlement"\)' 'Auto Giveup must use direct ExitSettlement remote'
 Assert-Contains 'AutoGiveupFlow\.AwaitingSettlement\s*=\s*true' 'ExitSettlement must latch settlement waiting state'
-Assert-Contains 'Humanoid\.Health\s*<=\s*0' 'Auto Giveup must detect dead humanoid without relying only on text'
+Assert-Contains 'GetAttribute\("RemainLife"\)' 'Auto Giveup must read the authoritative remaining-life attribute'
+Assert-Contains 'RemainLife\s*<=\s*0' 'Auto Giveup must detect death from RemainLife'
+Assert-Contains '(?s)BattleHUD.*PlayerRevive.*ReviveFrame.*Revive.*ExitBtn' 'Missing exact PlayerRevive ExitBtn path'
 Assert-Contains 'if\s+not\s+_G\.AutoGiveup' 'Auto Giveup flow must respect its toggle'
 Assert-Contains 'Config\.DeathRestartPending\s*=\s*_G\.AutoFarm\s+and\s+_G\.AutoReplay' 'Lobby restart intent must follow Auto Farm and Auto Replay'
 Assert-Contains '(?s)ResultGui.*ScreenSettlement.*BtnGroup.*ReturnToLobbyBtn' 'Missing exact Return to Lobby path'
@@ -31,6 +33,12 @@ if ($deathScanIndex -lt 0 -or $targetScanIndex -lt 0 -or $deathScanIndex -ge $ta
 
 $deathFunction = [regex]::Match($content, 'local\s+function\s+ScanAndHandleDeath\(\)(?<body>[\s\S]*?)\r?\nend\r?\n\r?\nlocal\s+function\s+ScanAndExecuteReplay')
 if (-not $deathFunction.Success) { throw 'Unable to isolate ScanAndHandleDeath' }
-if ($deathFunction.Groups['body'].Value -match 'TaskRE|UpdateTaskProgress') { throw 'Auto Giveup must not fire TaskRE telemetry manually' }
+$deathBody = $deathFunction.Groups['body'].Value
+if ($deathBody -match 'TaskRE|UpdateTaskProgress') { throw 'Auto Giveup must not fire TaskRE telemetry manually' }
+$exitButtonIndex = $deathBody.IndexOf('EksekusiKlikReplay(ExitButton)')
+$exitRemoteIndex = $deathBody.IndexOf('Remote:FireServer("ExitSettlement")')
+if ($exitButtonIndex -lt 0 -or $exitRemoteIndex -lt 0 -or $exitButtonIndex -ge $exitRemoteIndex) {
+    throw 'Auto Giveup must activate the real ExitBtn before direct remote fallback'
+}
 
 'v6-auto-giveup-ok'
