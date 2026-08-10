@@ -7,6 +7,7 @@ When Auto Giveup is enabled, a dead dungeon character exits the death screen, al
 ## Death Flow
 
 - Check death before target acquisition so living enemies cannot block Give Up handling.
+- Run the death scanner independently of Auto Farm and do not reject death from the enemy-folder lobby heuristic.
 - Require `_G.AutoGiveup`, active dungeon state, and `LocalPlayer:GetAttribute("RemainLife") <= 0`.
 - Activate exact `BattleHUD.PlayerRevive.ReviveFrame.Revive.ExitBtn` first so the original client handler performs the exit.
 - If settlement does not open, fire `ReplicatedStorage.Remotes.GamePlayerRE:FireServer("ExitSettlement")` on the next bounded retry.

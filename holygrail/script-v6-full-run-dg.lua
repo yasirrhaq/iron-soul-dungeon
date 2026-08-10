@@ -4496,7 +4496,7 @@ function AutoGiveupFlow.GetRemote()
 end
 
 local function ScanAndHandleDeath()
-    if not _G.AutoGiveup or IsInLobby() then
+    if not _G.AutoGiveup then
         return false
     end
     local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
@@ -4619,15 +4619,16 @@ end
 
 task.spawn(function()
     while true do
-        if _G.AutoFarm and not RejoinWatchdog.BlocksAutomation() then
-            local DeathHandled = false
-            if _G.AutoGiveup and not IsInLobby() then
-                local Success, Result = pcall(ScanAndHandleDeath)
-                DeathHandled = Success and Result == true
-            end
-            if DeathHandled then
-                task.wait(0.2)
-            elseif IsInLobby() then
+        local AutomationBlocked = RejoinWatchdog.BlocksAutomation()
+        local DeathHandled = false
+        if _G.AutoGiveup and not AutomationBlocked then
+            local Success, Result = pcall(ScanAndHandleDeath)
+            DeathHandled = Success and Result == true
+        end
+        if DeathHandled then
+            task.wait(0.2)
+        elseif _G.AutoFarm and not AutomationBlocked then
+            if IsInLobby() then
                 Target = nil
                 TargetKind = nil
                 IsEgg = false

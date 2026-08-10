@@ -30,11 +30,16 @@ $targetScanIndex = $content.IndexOf('pcall(GetClosestTargetZeroSpike)')
 if ($deathScanIndex -lt 0 -or $targetScanIndex -lt 0 -or $deathScanIndex -ge $targetScanIndex) {
     throw 'Death handling must run before target acquisition'
 }
+$farmGateIndex = $content.IndexOf('if _G.AutoFarm and not RejoinWatchdog.BlocksAutomation() then')
+if ($farmGateIndex -ge 0 -and $deathScanIndex -gt $farmGateIndex) {
+    throw 'Auto Giveup scanner must run independently of Auto Farm'
+}
 
 $deathFunction = [regex]::Match($content, 'local\s+function\s+ScanAndHandleDeath\(\)(?<body>[\s\S]*?)\r?\nend\r?\n\r?\nlocal\s+function\s+ScanAndExecuteReplay')
 if (-not $deathFunction.Success) { throw 'Unable to isolate ScanAndHandleDeath' }
 $deathBody = $deathFunction.Groups['body'].Value
 if ($deathBody -match 'TaskRE|UpdateTaskProgress') { throw 'Auto Giveup must not fire TaskRE telemetry manually' }
+if ($deathBody -match 'AutoGiveup\s+or\s+IsInLobby|IsInLobby\(\)') { throw 'Death scan must not trust lobby heuristic after enemy cleanup' }
 $exitButtonIndex = $deathBody.IndexOf('EksekusiKlikReplay(ExitButton)')
 $exitRemoteIndex = $deathBody.IndexOf('Remote:FireServer("ExitSettlement")')
 if ($exitButtonIndex -lt 0 -or $exitRemoteIndex -lt 0 -or $exitButtonIndex -ge $exitRemoteIndex) {

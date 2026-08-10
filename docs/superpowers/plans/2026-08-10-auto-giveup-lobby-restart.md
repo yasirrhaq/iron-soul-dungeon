@@ -15,6 +15,7 @@
 - Process pending restart in lobby through existing auto-start and auto-sell flows.
 - Rewrite death scan to use `RemainLife`, exact PlayerRevive `ExitBtn`, direct `ExitSettlement` fallback, exact Return to Lobby button, and bounded retries.
 - Move death scan before target acquisition.
+- Run death scan outside the Auto Farm and lobby-heuristic gates.
 
 ## Task 3: Documentation And Verification
 
