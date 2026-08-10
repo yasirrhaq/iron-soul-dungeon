@@ -2802,6 +2802,12 @@ local function GetScreenMatch()
     return MainGui and MainGui:FindFirstChild("ScreenMatch")
 end
 
+function AutoEndlessTower.GetScreenMatch()
+    local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    local MainGui = PlayerGui and PlayerGui:FindFirstChild("MainGui")
+    return MainGui and MainGui:FindFirstChild("ScreenMatch_Endless")
+end
+
 local function IsAutoStartFreeMatchRoom(Room)
     local PlayersCount = tonumber(Room:GetAttribute("PlayersCount")) or 0
     local RoomState = Room:GetAttribute("RoomState")
@@ -2840,21 +2846,36 @@ local function FindAutoStartFreePortal()
     end
 end
 
-local function TouchAutoStartPortal()
+function AutoEndlessTower.FindFreePortal()
+    local MatchRoom = workspace:FindFirstChild("MatchRoom")
+    if not MatchRoom then
+        return nil, nil
+    end
+    for Index = 9, 10 do
+        local Room = MatchRoom:FindFirstChild("Room" .. tostring(Index))
+        if Room and IsAutoStartFreeMatchRoom(Room) then
+            local PortalPart = FindAutoStartPortalPart(Room)
+            if PortalPart then
+                return Room, PortalPart
+            end
+        end
+    end
+end
+
+function AutoLobbyStartGate.TouchRoomPortal(Room, PortalPart, LogPrefix)
     if not firetouchinterest then
-        print("[AutoStart] firetouchinterest unavailable")
+        print(LogPrefix .. " firetouchinterest unavailable")
         return false
     end
 
     local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
     local RootPart = Character:FindFirstChild("HumanoidRootPart") or Character:WaitForChild("HumanoidRootPart", 3)
-    local Room, PortalPart = FindAutoStartFreePortal()
     if not RootPart or not PortalPart then
-        print("[AutoStart] Waiting free match room")
+        print(LogPrefix .. " Waiting free match room")
         return false
     end
 
-    print("[AutoStart] Touching " .. Room.Name .. " portal")
+    print(LogPrefix .. " Touching " .. Room.Name .. " portal")
     local Direction = PortalPart.Position - RootPart.Position
     if Direction.Magnitude < 0.1 then
         Direction = RootPart.CFrame.LookVector
@@ -2869,6 +2890,15 @@ local function TouchAutoStartPortal()
     task.wait(0.2)
     firetouchinterest(RootPart, PortalPart, 1)
     return true
+end
+
+local function TouchAutoStartPortal()
+    local Room, PortalPart = FindAutoStartFreePortal()
+    return AutoLobbyStartGate.TouchRoomPortal(Room, PortalPart, "[AutoStart]")
+end
+
+function AutoEndlessTower.TouchPortal(Room, PortalPart)
+    return AutoLobbyStartGate.TouchRoomPortal(Room, PortalPart, "[AutoEndless]")
 end
 
 local function WaitForScreenMatchVisible(Timeout)
@@ -2901,6 +2931,18 @@ local function IsAutoStartGuiVisible(Obj)
     return true
 end
 
+function AutoEndlessTower.WaitForMatchVisible(Timeout)
+    local StartedAt = os.clock()
+    repeat
+        local ScreenMatch = AutoEndlessTower.GetScreenMatch()
+        if ScreenMatch and ScreenMatch.Visible then
+            return ScreenMatch
+        end
+        task.wait(0.1)
+    until os.clock() - StartedAt >= Timeout
+    return nil
+end
+
 function AutoEndlessTower.SetStatus(Status)
     if AutoEndlessTower.Status == Status then
         return
@@ -2930,9 +2972,9 @@ function AutoEndlessTower.TryJoin()
     end
     AutoEndlessTower.LastAttemptAt = CurrentTime
 
-    local Room = FindAutoStartFreePortal()
-    if not Room then
-        AutoEndlessTower.SetStatus("WAITING EMPTY ROOM")
+    local Room, PortalPart = AutoEndlessTower.FindFreePortal()
+    if not Room or not PortalPart then
+        AutoEndlessTower.SetStatus("WAITING EMPTY ROOM9/10")
         return false
     end
 
@@ -2944,6 +2986,19 @@ function AutoEndlessTower.TryJoin()
             SellPendingReason = "endless backpack full"
         end
         return false
+    end
+
+    local ScreenMatchEndless = AutoEndlessTower.GetScreenMatch()
+    if not ScreenMatchEndless or not ScreenMatchEndless.Visible then
+        AutoEndlessTower.SetStatus("TOUCHING " .. Room.Name)
+        if not AutoEndlessTower.TouchPortal(Room, PortalPart) then
+            return false
+        end
+        ScreenMatchEndless = AutoEndlessTower.WaitForMatchVisible(3)
+        if not ScreenMatchEndless then
+            AutoEndlessTower.SetStatus("WAITING SCREENMATCH_ENDLESS")
+            return false
+        end
     end
 
     local StartingRound, MaxRound = AutoEndlessTower.ResolveStartingRound()

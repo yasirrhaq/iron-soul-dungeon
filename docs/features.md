@@ -96,7 +96,8 @@ Brief behavior notes for `holygrail/script-v6-full-run-dg.lua`.
 - Utility → Tower provides a persistent Auto Join toggle, starting-round selector, player-count selector, and live status.
 - Starting point can use `Highest Unlocked` or a custom five-floor checkpoint: `1-5`, `6-10`, through `196-200`.
 - `WorldUtil:GetWorldRecords(..., "MaxRound", currentSeason)` controls unlocked checkpoints. Progress may exceed round 200, but starting points cap at round 196 for the `196-200` block.
-- Auto Join waits until a `workspace.MatchRoom.Room1`-`Room4` slot has `PlayersCount == 0` and empty room state. The server chooses the actual slot because the Endless `CreatRoom` payload has no slot argument.
+- Auto Join scans the Endless slots `workspace.MatchRoom.Room9` and `Room10`, requiring `PlayersCount == 0` and empty room state.
+- It teleports through the selected slot's `Touch` portal, waits for `MainGui.ScreenMatch_Endless`, then sends the create-room payload.
 - Room creation uses `GameMatchRE:FireServer("CreatRoom", "Endless1", 1, playerCount, startingRound)` and takes priority over normal dungeon auto-start.
 - After teleport, Auto Join detects the visible `Equip Extra Weapon` modal and activates its `Start` button before normal farming continues.
 - Normal dungeon restart and Endless Auto Join wait for an eight-second lobby/character loading grace before creating rooms.

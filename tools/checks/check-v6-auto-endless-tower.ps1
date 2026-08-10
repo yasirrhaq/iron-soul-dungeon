@@ -23,10 +23,22 @@ Assert-Contains 'GetWorldRecords\([^\r\n]*"Endless1"\s*,\s*1\s*,\s*"MaxRound"' '
 Assert-Contains 'function\s+AutoEndlessTower\.GetHighestStartingRound\(' 'Missing highest-unlocked starting-round resolver'
 Assert-Contains 'FindAutoStartFreePortal\(\)' 'Endless join must wait for an empty MatchRoom slot'
 Assert-Contains 'PlayersCount\s*==\s*0' 'Empty-room detection must reject occupied rooms'
+Assert-Contains 'for\s+Index\s*=\s*9\s*,\s*10\s+do' 'Endless Tower must scan Room9 and Room10'
+Assert-Contains 'ScreenMatch_Endless' 'Endless Tower must wait for its real match UI'
+Assert-Contains 'function\s+AutoEndlessTower\.TouchPortal\(' 'Missing Endless portal-touch helper'
 Assert-Contains 'GraceDelay\s*=\s*8' 'Lobby room creation must wait through an eight-second loading grace'
 Assert-Contains 'function\s+AutoLobbyStartGate\.IsReady\(' 'Missing shared lobby readiness gate'
 Assert-Contains 'GetAttribute\("EnterRoomId"\)' 'Endless join must stop after the server assigns a room'
 Assert-Contains 'FireServer\("CreatRoom",\s*"Endless1",\s*1,\s*AutoEndlessTower\.MaxPlayers,\s*StartingRound\)' 'Endless create-room payload changed'
+$tryJoin = [regex]::Match($content, 'function\s+AutoEndlessTower\.TryJoin\(\)(?<body>[\s\S]*?)\r?\nend\r?\n\r?\nlocal\s+function\s+ClickGuiButton')
+if (-not $tryJoin.Success) { throw 'Unable to isolate AutoEndlessTower.TryJoin' }
+$tryJoinBody = $tryJoin.Groups['body'].Value
+$touchIndex = $tryJoinBody.IndexOf('AutoEndlessTower.TouchPortal(')
+$screenIndex = $tryJoinBody.IndexOf('AutoEndlessTower.WaitForMatchVisible(')
+$createIndex = $tryJoinBody.IndexOf('FireServer("CreatRoom", "Endless1"')
+if ($touchIndex -lt 0 -or $screenIndex -lt 0 -or $createIndex -lt 0 -or $touchIndex -ge $screenIndex -or $screenIndex -ge $createIndex) {
+    throw 'Endless flow must touch Room9/10 portal, wait ScreenMatch_Endless, then create room'
+}
 Assert-Contains '(?s)local\s+function\s+TryAutoStartSoloDungeon\(\).*?_G\.AutoJoinEndlessTower.*?return\s+false' 'Endless join must take priority over normal dungeon auto-start'
 Assert-Contains '(?s)function\s+AutoEndlessTower\.TryJoin\(\).*?AutoLobbyStartGate\.IsReady\(\)' 'Endless join must wait for lobby loading grace'
 Assert-Contains '(?s)local\s+function\s+TryAutoStartSoloDungeon\(\).*?AutoLobbyStartGate\.IsReady\(\)' 'Normal dungeon restart must wait for lobby loading grace'
