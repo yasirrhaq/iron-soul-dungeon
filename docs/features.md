@@ -91,6 +91,15 @@ Brief behavior notes for `holygrail/script-v6-full-run-dg.lua`.
 - Normal victory replay remains `Play Again`; selector does not queue from lobby or add a manual start action.
 - Auto-start remains solo `1/1` and requires Auto Farm plus Auto Replay.
 
+## Auto Join Endless Tower
+
+- Utility → Tower provides a persistent Auto Join toggle, starting-round selector, player-count selector, and live status.
+- Starting point can use `Highest Unlocked` or a custom five-floor checkpoint: `1-5`, `6-10`, through `196-200`.
+- `WorldUtil:GetWorldRecords(..., "MaxRound", currentSeason)` controls unlocked checkpoints. Progress may exceed round 200, but starting points cap at round 196 for the `196-200` block.
+- Auto Join waits until a `workspace.MatchRoom.Room1`-`Room4` slot has `PlayersCount == 0` and empty room state. The server chooses the actual slot because the Endless `CreatRoom` payload has no slot argument.
+- Room creation uses `GameMatchRE:FireServer("CreatRoom", "Endless1", 1, playerCount, startingRound)` and takes priority over normal dungeon auto-start.
+- Full ore backpacks wait for enabled Auto Sell before another join attempt.
+
 ## Auto Rejoin
 
 - Farm tab `Auto Rejoin` toggle persists and defaults to enabled.

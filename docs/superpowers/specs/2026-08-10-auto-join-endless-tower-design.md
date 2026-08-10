@@ -1,0 +1,26 @@
+# Auto Join Endless Tower Design
+
+## Goal
+
+Automatically create an Endless Tower room from the lobby with saved starting-round and player-count controls.
+
+## Selection
+
+- Store `0` as `Highest Unlocked`; custom starting points are `1, 6, 11, ... 196`.
+- Read seasonal `MaxRound` through `WorldUtil:GetWorldRecords(LocalPlayer, "Endless1", 1, "MaxRound", SeasonUtil:GetCurrentSeason())`.
+- Compute highest starting point as `floor(MaxRound / 5) * 5 + 1`, clamped to `1..196`.
+- Allow player counts `1..4`, defaulting to solo.
+
+## Lobby Flow
+
+- Run only while enabled, in lobby, outside rejoin recovery, and outside auto-sell work.
+- Reuse empty MatchRoom detection and wait for `PlayersCount == 0` plus empty room state.
+- Fire `GameMatchRE:FireServer("CreatRoom", "Endless1", 1, playerCount, startingRound)` with a bounded retry delay.
+- Endless Tower takes priority over normal dungeon auto-start.
+- Server selects the physical room slot because the remote payload does not include a slot index.
+
+## UI
+
+- Add Utility → Tower.
+- Show Auto Join toggle, starting-round dropdown, player-count dropdown, highest round, resolved next start, and runtime status.
+- Keep locked checkpoints visible but non-selectable.

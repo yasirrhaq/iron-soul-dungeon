@@ -163,6 +163,23 @@ local AutoBuyWantedItemIds = nil
 local AutoSeasonBuyWantedItemIds = nil
 local SellMaxRarity = nil
 local OreSellModes = nil
+AutoEndlessTower = {
+    StartingRound = 0,
+    MaxPlayers = 1,
+    RetryDelay = 3,
+    LastAttemptAt = -math.huge,
+    Status = "OFF",
+    Refresh = nil
+}
+
+function AutoEndlessTower.NormalizeStartingRound(Value)
+    Value = math.floor(tonumber(Value) or 0)
+    if Value <= 0 then
+        return 0
+    end
+    Value = math.clamp(Value, 1, 196)
+    return math.floor((Value - 1) / 5) * 5 + 1
+end
 
 local Config = {
     TinggiMelayang = 5,
@@ -190,6 +207,9 @@ local Config = {
     SellMaxRarity = 5,
     AutoStartWorldId = "World3",
     AutoStartDifficulty = 10,
+    AutoJoinEndlessTower = false,
+    EndlessTowerStartingRound = 0,
+    EndlessTowerMaxPlayers = 1,
     AutoRejoin = true,
     LobbyPlaceId = 0,
     RecoveryPending = false,
@@ -458,6 +478,9 @@ local function LoadConfig()
     Config.SellMaxRarity = math.floor(ClampNumber(Config.SellMaxRarity, 0, 10, 5))
     Config.AutoStartWorldId = type(Config.AutoStartWorldId) == "string" and Config.AutoStartWorldId or "World3"
     Config.AutoStartDifficulty = math.max(1, math.floor(tonumber(Config.AutoStartDifficulty) or 10))
+    Config.AutoJoinEndlessTower = Config.AutoJoinEndlessTower == true
+    Config.EndlessTowerStartingRound = AutoEndlessTower.NormalizeStartingRound(Config.EndlessTowerStartingRound)
+    Config.EndlessTowerMaxPlayers = math.floor(ClampNumber(Config.EndlessTowerMaxPlayers, 1, 4, 1))
     Config.AutoRejoin = Config.AutoRejoin ~= false
     Config.LobbyPlaceId = math.max(0, math.floor(tonumber(Config.LobbyPlaceId) or 0))
     Config.RecoveryPending = Config.RecoveryPending == true
@@ -503,6 +526,9 @@ local function SaveConfig()
     Config.SellMaxRarity = SellMaxRarity or Config.SellMaxRarity
     Config.AutoStartWorldId = AutoStartWorldId or Config.AutoStartWorldId
     Config.AutoStartDifficulty = AutoStartDifficulty or Config.AutoStartDifficulty
+    Config.AutoJoinEndlessTower = _G.AutoJoinEndlessTower
+    Config.EndlessTowerStartingRound = AutoEndlessTower.StartingRound
+    Config.EndlessTowerMaxPlayers = AutoEndlessTower.MaxPlayers
     Config.AutoRejoin = _G.AutoRejoin
     Config.OreSellModes = OreSellModes or Config.OreSellModes
     local Berhasil, HasilJSON = pcall(function()
@@ -521,6 +547,8 @@ end
 LoadConfig()
 AutoStartWorldId = Config.AutoStartWorldId
 AutoStartDifficulty = Config.AutoStartDifficulty
+AutoEndlessTower.StartingRound = Config.EndlessTowerStartingRound
+AutoEndlessTower.MaxPlayers = Config.EndlessTowerMaxPlayers
 AutoForge.RecipeId = Config.AutoForgeRecipeId
 AutoForge.Composition = Config.AutoForgeOreComposition
 AutoForge.RequestedCrafts = Config.AutoForgeRequestedCrafts
@@ -550,6 +578,7 @@ _G.AutoForge = Config.AutoForge
 _G.AutoPotion = Config.AutoPotion
 _G.AutoPetExpedition = Config.AutoPetExpedition
 _G.AutoClaimPetExpedition = Config.AutoClaimPetExpedition
+_G.AutoJoinEndlessTower = Config.AutoJoinEndlessTower
 _G.AutoRejoin = Config.AutoRejoin
 
 task.spawn(function()
@@ -1292,6 +1321,23 @@ local function GetFrameworkModule()
         FrameworkModule = require(ReplicatedStorage:WaitForChild("Framework"))
     end
     return FrameworkModule
+end
+
+function AutoEndlessTower.GetHighestStartingRound()
+    local Framework = GetFrameworkModule()
+    local WorldUtil = Framework.Modules.WorldUtil
+    local SeasonUtil = Framework.Modules.SeasonUtil
+    local MaxRound = WorldUtil:GetWorldRecords(LocalPlayer, "Endless1", 1, "MaxRound", SeasonUtil:GetCurrentSeason())
+    MaxRound = math.max(0, math.floor(tonumber(MaxRound) or 0))
+    return math.clamp(math.floor(MaxRound / 5) * 5 + 1, 1, 196), MaxRound
+end
+
+function AutoEndlessTower.ResolveStartingRound()
+    local HighestStartingRound, MaxRound = AutoEndlessTower.GetHighestStartingRound()
+    if AutoEndlessTower.StartingRound == 0 then
+        return HighestStartingRound, MaxRound
+    end
+    return math.min(AutoEndlessTower.StartingRound, HighestStartingRound), MaxRound
 end
 
 local function GetForgeRemoteFunction()
@@ -2832,6 +2878,61 @@ local function IsAutoStartGuiVisible(Obj)
     return true
 end
 
+function AutoEndlessTower.SetStatus(Status)
+    if AutoEndlessTower.Status == Status then
+        return
+    end
+    AutoEndlessTower.Status = Status
+    if AutoEndlessTower.Refresh then
+        pcall(AutoEndlessTower.Refresh)
+    end
+end
+
+function AutoEndlessTower.TryJoin()
+    if not _G.AutoJoinEndlessTower or RejoinWatchdog.BlocksAutomation() or SellPending then
+        return false
+    end
+    if not IsInLobby or not IsInLobby() then
+        AutoEndlessTower.SetStatus("WAITING LOBBY")
+        return false
+    end
+
+    local CurrentTime = os.clock()
+    if CurrentTime - AutoEndlessTower.LastAttemptAt < AutoEndlessTower.RetryDelay then
+        return false
+    end
+    AutoEndlessTower.LastAttemptAt = CurrentTime
+
+    local Room = FindAutoStartFreePortal()
+    if not Room then
+        AutoEndlessTower.SetStatus("WAITING EMPTY ROOM")
+        return false
+    end
+
+    local BackpackOk, Current, Max = pcall(GetOreBackpackUsage)
+    if BackpackOk and Max > 0 and Current >= Max then
+        AutoEndlessTower.SetStatus("BACKPACK FULL")
+        if _G.AutoSell then
+            SellPending = true
+            SellPendingReason = "endless backpack full"
+        end
+        return false
+    end
+
+    local StartingRound, MaxRound = AutoEndlessTower.ResolveStartingRound()
+    AutoEndlessTower.SetStatus("CREATING " .. Room.Name .. " · ROUND " .. tostring(StartingRound))
+    print("[AutoEndless] Creating " .. Room.Name .. " players=" .. tostring(AutoEndlessTower.MaxPlayers) ..
+              " start=" .. tostring(StartingRound) .. " max=" .. tostring(MaxRound))
+    GetGameMatchRemoteEvent():FireServer("CreatRoom", "Endless1", 1, AutoEndlessTower.MaxPlayers, StartingRound)
+    AutoStartPending = false
+    if Config.DeathRestartPending or Config.RecoveryPending then
+        Config.DeathRestartPending = false
+        Config.RecoveryPending = false
+        SaveConfig()
+    end
+    return true
+end
+
 local function ClickGuiButton(Button)
     if not Button or not Button:IsA("GuiObject") or not IsAutoStartGuiVisible(Button) then
         return false
@@ -2921,7 +3022,8 @@ local function PrepareScreenMatchForAutoStart(ScreenMatch)
 end
 
 local function TryAutoStartSoloDungeon()
-    if RejoinWatchdog.BlocksAutomation() or SellPending or not _G.AutoFarm or not _G.AutoReplay then
+    if _G.AutoJoinEndlessTower or RejoinWatchdog.BlocksAutomation() or SellPending or not _G.AutoFarm or
+        not _G.AutoReplay then
         return false
     end
 
@@ -3375,6 +3477,20 @@ task.spawn(function()
                 LastAutoStartRetryAt = CurrentTime
                 pcall(TryAutoStartSoloDungeon)
             end
+        end
+    end
+end)
+
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        if _G.AutoJoinEndlessTower then
+            local Success, ErrorMessage = pcall(AutoEndlessTower.TryJoin)
+            if not Success then
+                AutoEndlessTower.SetStatus("ERROR: " .. tostring(ErrorMessage))
+            end
+        elseif AutoEndlessTower.Status ~= "OFF" then
+            AutoEndlessTower.SetStatus("OFF")
         end
     end
 end)
@@ -6384,19 +6500,22 @@ UtilityNavigation.BackgroundTransparency = 1
 UtilityNavigation.Parent = UtilityTab
 
 local DungeonTabButton = CreateButton(UtilityNavigation, "DUNGEON")
-DungeonTabButton.Size = UDim2.new(0.2, -4, 1, 0)
+DungeonTabButton.Size = UDim2.new(1 / 6, -4, 1, 0)
+local TowerTabButton = CreateButton(UtilityNavigation, "TOWER")
+TowerTabButton.Position = UDim2.new(1 / 6, 2, 0, 0)
+TowerTabButton.Size = UDim2.new(1 / 6, -4, 1, 0)
 local GroceryTabButton = CreateButton(UtilityNavigation, "GROCERY")
-GroceryTabButton.Position = UDim2.new(0.2, 2, 0, 0)
-GroceryTabButton.Size = UDim2.new(0.2, -4, 1, 0)
+GroceryTabButton.Position = UDim2.new(2 / 6, 4, 0, 0)
+GroceryTabButton.Size = UDim2.new(1 / 6, -4, 1, 0)
 local SeasonTabButton = CreateButton(UtilityNavigation, "SEASON")
-SeasonTabButton.Position = UDim2.new(0.4, 4, 0, 0)
-SeasonTabButton.Size = UDim2.new(0.2, -4, 1, 0)
-local AutoSellTabButton = CreateButton(UtilityNavigation, "AUTO SELL")
-AutoSellTabButton.Position = UDim2.new(0.6, 6, 0, 0)
-AutoSellTabButton.Size = UDim2.new(0.2, -4, 1, 0)
+SeasonTabButton.Position = UDim2.new(3 / 6, 6, 0, 0)
+SeasonTabButton.Size = UDim2.new(1 / 6, -4, 1, 0)
+local AutoSellTabButton = CreateButton(UtilityNavigation, "SELL")
+AutoSellTabButton.Position = UDim2.new(4 / 6, 8, 0, 0)
+AutoSellTabButton.Size = UDim2.new(1 / 6, -4, 1, 0)
 local PetExpeditionTabButton = CreateButton(UtilityNavigation, "PETS")
-PetExpeditionTabButton.Position = UDim2.new(0.8, 8, 0, 0)
-PetExpeditionTabButton.Size = UDim2.new(0.2, -8, 1, 0)
+PetExpeditionTabButton.Position = UDim2.new(5 / 6, 10, 0, 0)
+PetExpeditionTabButton.Size = UDim2.new(1 / 6, -10, 1, 0)
 
 local UtilityPages = Instance.new("Frame")
 UtilityPages.Position = UDim2.fromOffset(0, 124)
@@ -6526,6 +6645,51 @@ DungeonPage.Name = "DungeonPage"
 DungeonPage.Size = UDim2.fromScale(1, 1)
 DungeonPage.BackgroundTransparency = 1
 DungeonPage.Parent = UtilityPages
+
+local TowerPage = Instance.new("Frame")
+TowerPage.Name = "TowerPage"
+TowerPage.Size = UDim2.fromScale(1, 1)
+TowerPage.BackgroundTransparency = 1
+TowerPage.Visible = false
+TowerPage.Parent = UtilityPages
+
+local AutoJoinEndlessTowerToggle = CreateToggleRow(TowerPage, "Auto Join Endless Tower", function()
+    return _G.AutoJoinEndlessTower
+end, function(Value)
+    _G.AutoJoinEndlessTower = Value
+    AutoEndlessTower.LastAttemptAt = -math.huge
+    AutoEndlessTower.SetStatus(Value and "WAITING LOBBY" or "OFF")
+    SaveConfig()
+end)
+AutoJoinEndlessTowerToggle.Name = "AutoJoinEndlessTowerToggle"
+AutoJoinEndlessTowerToggle.Size = UDim2.new(1, 0, 0, 34)
+
+local EndlessStartingRoundLabel = CreateText(TowerPage, "Starting Round", 11, Theme.Muted)
+EndlessStartingRoundLabel.Position = UDim2.fromOffset(0, 42)
+EndlessStartingRoundLabel.Size = UDim2.new(1, 0, 0, 18)
+local EndlessStartingRoundDropdown, EndlessStartingRoundOptions = CreateSelectorDropdown(TowerPage,
+    "EndlessStartingRound", 62)
+
+local EndlessPlayerCountLabel = CreateText(TowerPage, "Player Count", 11, Theme.Muted)
+EndlessPlayerCountLabel.Position = UDim2.fromOffset(0, 108)
+EndlessPlayerCountLabel.Size = UDim2.new(1, 0, 0, 18)
+local EndlessPlayerCountDropdown, EndlessPlayerCountOptions = CreateSelectorDropdown(TowerPage,
+    "EndlessPlayerCount", 128, true)
+
+local EndlessStatusLabel = CreateText(TowerPage, "STATUS: OFF", 11, Theme.Muted)
+EndlessStatusLabel.Name = "EndlessStatusLabel"
+EndlessStatusLabel.Position = UDim2.fromOffset(0, 174)
+EndlessStatusLabel.Size = UDim2.new(1, 0, 0, 58)
+EndlessStatusLabel.TextWrapped = true
+
+EndlessStartingRoundDropdown.Activated:Connect(function()
+    EndlessPlayerCountOptions.Visible = false
+    EndlessStartingRoundOptions.Visible = not EndlessStartingRoundOptions.Visible
+end)
+EndlessPlayerCountDropdown.Activated:Connect(function()
+    EndlessStartingRoundOptions.Visible = false
+    EndlessPlayerCountOptions.Visible = not EndlessPlayerCountOptions.Visible
+end)
 
 local PetExpeditionPage = Instance.new("Frame")
 PetExpeditionPage.Name = "PetExpeditionPage"
@@ -6911,6 +7075,58 @@ local function AddSelectorOption(Options, Text, Unlocked, OnSelect)
     end)
 end
 
+local function FormatEndlessStartingRound(StartingRound)
+    if StartingRound == 0 then
+        return "Highest Unlocked"
+    end
+    return tostring(StartingRound) .. "-" .. tostring(math.min(StartingRound + 4, 200))
+end
+
+local function BuildEndlessTowerPage()
+    EndlessStartingRoundOptions.Visible = false
+    EndlessPlayerCountOptions.Visible = false
+    ClearSelectorOptions(EndlessStartingRoundOptions)
+    ClearSelectorOptions(EndlessPlayerCountOptions)
+
+    local HighestStartingRound, MaxRound = AutoEndlessTower.GetHighestStartingRound()
+    AddSelectorOption(EndlessStartingRoundOptions, "Highest Unlocked", true, function()
+        AutoEndlessTower.StartingRound = 0
+        AutoEndlessTower.LastAttemptAt = -math.huge
+        SaveConfig()
+        BuildEndlessTowerPage()
+    end)
+    for StartingRound = 1, 196, 5 do
+        local SelectedRound = StartingRound
+        AddSelectorOption(EndlessStartingRoundOptions, FormatEndlessStartingRound(SelectedRound),
+            SelectedRound <= HighestStartingRound, function()
+                AutoEndlessTower.StartingRound = SelectedRound
+                AutoEndlessTower.LastAttemptAt = -math.huge
+                SaveConfig()
+                BuildEndlessTowerPage()
+            end)
+    end
+    EndlessStartingRoundOptions.Size = UDim2.new(1, 0, 0, 180)
+    EndlessStartingRoundDropdown.Text = "  " .. FormatEndlessStartingRound(AutoEndlessTower.StartingRound) ..
+                                              "  \226\150\188"
+
+    for PlayerCount = 1, 4 do
+        local SelectedPlayerCount = PlayerCount
+        AddSelectorOption(EndlessPlayerCountOptions, tostring(SelectedPlayerCount), true, function()
+            AutoEndlessTower.MaxPlayers = SelectedPlayerCount
+            AutoEndlessTower.LastAttemptAt = -math.huge
+            SaveConfig()
+            BuildEndlessTowerPage()
+        end)
+    end
+    EndlessPlayerCountOptions.Size = UDim2.new(1, 0, 0, 138)
+    EndlessPlayerCountDropdown.Text = "  " .. tostring(AutoEndlessTower.MaxPlayers) .. "  \226\150\188"
+
+    local ResolvedStartingRound = AutoEndlessTower.ResolveStartingRound()
+    EndlessStatusLabel.Text = "STATUS: " .. tostring(AutoEndlessTower.Status) .. "\nHIGHEST ROUND: " ..
+                                  tostring(MaxRound) .. " · NEXT START: " .. tostring(ResolvedStartingRound)
+end
+AutoEndlessTower.Refresh = BuildEndlessTowerPage
+
 local function FindSelectedDifficultyName()
     for _, Entry in ipairs(DungeonCatalog.GetDifficultyCatalog(AutoStartWorldId)) do
         if Entry.Level == AutoStartDifficulty then
@@ -6959,24 +7175,31 @@ end
 local function SetUtilityPage(Name)
     DungeonOptions.Visible = false
     DifficultyOptions.Visible = false
+    EndlessStartingRoundOptions.Visible = false
+    EndlessPlayerCountOptions.Visible = false
     AutoPotionOverlay.Visible = false
     DungeonPage.Visible = Name == "Dungeon"
+    TowerPage.Visible = Name == "Tower"
     GroceryPage.Page.Visible = Name == "Grocery"
     SeasonPage.Page.Visible = Name == "Season"
     AutoSellPage.Page.Visible = Name == "AutoSell"
     PetExpeditionPage.Visible = Name == "Pets"
     DungeonTabButton.BackgroundColor3 = Name == "Dungeon" and Theme.Accent or Theme.Surface
+    TowerTabButton.BackgroundColor3 = Name == "Tower" and Theme.Accent or Theme.Surface
     GroceryTabButton.BackgroundColor3 = Name == "Grocery" and Theme.Accent or Theme.Surface
     SeasonTabButton.BackgroundColor3 = Name == "Season" and Theme.Accent or Theme.Surface
     AutoSellTabButton.BackgroundColor3 = Name == "AutoSell" and Theme.Accent or Theme.Surface
     PetExpeditionTabButton.BackgroundColor3 = Name == "Pets" and Theme.Accent or Theme.Surface
     if Name == "Dungeon" then
         pcall(BuildDungeonPage, true)
+    elseif Name == "Tower" then
+        pcall(BuildEndlessTowerPage)
     elseif Name == "Pets" then
         RefreshPetExpeditionUI()
     end
 end
 DungeonTabButton.Activated:Connect(function() SetUtilityPage("Dungeon") end)
+TowerTabButton.Activated:Connect(function() SetUtilityPage("Tower") end)
 GroceryTabButton.Activated:Connect(function() SetUtilityPage("Grocery") end)
 SeasonTabButton.Activated:Connect(function() SetUtilityPage("Season") end)
 AutoSellTabButton.Activated:Connect(function() SetUtilityPage("AutoSell") end)
@@ -6984,6 +7207,8 @@ PetExpeditionTabButton.Activated:Connect(function() SetUtilityPage("Pets") end)
 CloseMenuDropdowns = function()
     DungeonOptions.Visible = false
     DifficultyOptions.Visible = false
+    EndlessStartingRoundOptions.Visible = false
+    EndlessPlayerCountOptions.Visible = false
     AutoPotionOverlay.Visible = false
     AutoForgePage.Close()
     ForgeTargetsPage.CloseDropdowns()
