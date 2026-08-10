@@ -98,6 +98,9 @@ Brief behavior notes for `holygrail/script-v6-full-run-dg.lua`.
 - `WorldUtil:GetWorldRecords(..., "MaxRound", currentSeason)` controls unlocked checkpoints. Progress may exceed round 200, but starting points cap at round 196 for the `196-200` block.
 - Auto Join waits until a `workspace.MatchRoom.Room1`-`Room4` slot has `PlayersCount == 0` and empty room state. The server chooses the actual slot because the Endless `CreatRoom` payload has no slot argument.
 - Room creation uses `GameMatchRE:FireServer("CreatRoom", "Endless1", 1, playerCount, startingRound)` and takes priority over normal dungeon auto-start.
+- After teleport, Auto Join detects the visible `Equip Extra Weapon` modal and activates its `Start` button before normal farming continues.
+- Normal dungeon restart and Endless Auto Join wait for an eight-second lobby/character loading grace before creating rooms.
+- Endless room creation retries at most every ten seconds and stops retrying once `LocalPlayer.EnterRoomId` is assigned.
 - Full ore backpacks wait for enabled Auto Sell before another join attempt.
 
 ## Auto Rejoin

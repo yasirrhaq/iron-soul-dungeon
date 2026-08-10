@@ -14,10 +14,13 @@ Automatically create an Endless Tower room from the lobby with saved starting-ro
 ## Lobby Flow
 
 - Run only while enabled, in lobby, outside rejoin recovery, and outside auto-sell work.
+- Require a shared eight-second lobby/character readiness grace before any normal or Endless room creation.
 - Reuse empty MatchRoom detection and wait for `PlayersCount == 0` plus empty room state.
-- Fire `GameMatchRE:FireServer("CreatRoom", "Endless1", 1, playerCount, startingRound)` with a bounded retry delay.
+- Fire `GameMatchRE:FireServer("CreatRoom", "Endless1", 1, playerCount, startingRound)` at most every ten seconds.
+- Stop retrying after `LocalPlayer:GetAttribute("EnterRoomId")` reports a server-assigned room.
 - Endless Tower takes priority over normal dungeon auto-start.
 - Server selects the physical room slot because the remote payload does not include a slot index.
+- In the tower, detect the visible `Equip Extra Weapon` title and activate the `Start` button within its modal with bounded retries.
 
 ## UI
 

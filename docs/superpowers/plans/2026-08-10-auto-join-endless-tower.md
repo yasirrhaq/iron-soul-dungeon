@@ -10,7 +10,9 @@
 - Add saved toggle, starting-round mode, and player count.
 - Resolve `Highest Unlocked` from seasonal `MaxRound` and cap starting points at 196.
 - Wait for an empty MatchRoom, then create `Endless1` with bounded retries.
+- Share an eight-second lobby readiness gate with normal dungeon restart and stop Endless retries after `EnterRoomId` assignment.
 - Block normal dungeon auto-start while Endless Auto Join is enabled.
+- Detect the post-teleport `Equip Extra Weapon` modal and click `Start` before farming.
 
 ## Task 3: UI And Verification
 

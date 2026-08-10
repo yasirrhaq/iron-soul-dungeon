@@ -166,8 +166,10 @@ local OreSellModes = nil
 AutoEndlessTower = {
     StartingRound = 0,
     MaxPlayers = 1,
-    RetryDelay = 3,
+    RetryDelay = 10,
+    StartRetryDelay = 1,
     LastAttemptAt = -math.huge,
+    LastStartAttemptAt = -math.huge,
     Status = "OFF",
     Refresh = nil
 }
@@ -679,6 +681,27 @@ local AutoStartRetryDelay = 3.0
 local AutoStartMaxPlayers = 1
 local AutoStartPending = false
 local IsInLobby = nil
+AutoLobbyStartGate = {
+    GraceDelay = 8,
+    ReadySince = nil
+}
+
+function AutoLobbyStartGate.IsReady()
+    if not IsInLobby or not IsInLobby() then
+        AutoLobbyStartGate.ReadySince = nil
+        return false
+    end
+
+    local Character = LocalPlayer.Character
+    if not Character or not Character:FindFirstChild("HumanoidRootPart") then
+        AutoLobbyStartGate.ReadySince = nil
+        return false
+    end
+
+    AutoLobbyStartGate.ReadySince = AutoLobbyStartGate.ReadySince or os.clock()
+    return os.clock() - AutoLobbyStartGate.ReadySince >= AutoLobbyStartGate.GraceDelay
+end
+
 AutoGiveupFlow = {
     ExitRetryDelay = 1.5,
     ReturnRetryDelay = 3.0,
@@ -2892,8 +2915,12 @@ function AutoEndlessTower.TryJoin()
     if not _G.AutoJoinEndlessTower or RejoinWatchdog.BlocksAutomation() or SellPending then
         return false
     end
-    if not IsInLobby or not IsInLobby() then
-        AutoEndlessTower.SetStatus("WAITING LOBBY")
+    if IsInLobby and IsInLobby() and LocalPlayer:GetAttribute("EnterRoomId") then
+        AutoEndlessTower.SetStatus("ROOM ASSIGNED")
+        return false
+    end
+    if not AutoLobbyStartGate.IsReady() then
+        AutoEndlessTower.SetStatus(AutoPotion.IsEndlessTower() and "IN TOWER" or "WAITING LOBBY")
         return false
     end
 
@@ -2947,6 +2974,63 @@ local function ClickGuiButton(Button)
         pcall(firesignal, Button.MouseButton1Click)
         pcall(firesignal, Button.Activated)
     end
+    return true
+end
+
+function AutoEndlessTower.TryStartRun()
+    local CurrentTime = os.clock()
+    if CurrentTime - AutoEndlessTower.LastStartAttemptAt < AutoEndlessTower.StartRetryDelay then
+        return false
+    end
+
+    local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not PlayerGui then
+        return false
+    end
+
+    local Title = nil
+    for _, Object in ipairs(PlayerGui:GetDescendants()) do
+        if (Object:IsA("TextLabel") or Object:IsA("TextButton")) and IsAutoStartGuiVisible(Object) and
+            string.find(string.lower(tostring(Object.Text)), "equip extra weapon", 1, true) then
+            Title = Object
+            break
+        end
+    end
+    if not Title then
+        return false
+    end
+
+    local StartButton = nil
+    local Root = Title.Parent
+    while Root and Root ~= PlayerGui.Parent and not StartButton do
+        for _, Object in ipairs(Root:GetDescendants()) do
+            if Object:IsA("GuiButton") and IsAutoStartGuiVisible(Object) then
+                local Text = Object:IsA("TextButton") and Object.Text or ""
+                if string.find(string.lower(Object.Name .. " " .. tostring(Text)), "start", 1, true) then
+                    StartButton = Object
+                    break
+                end
+            elseif Object:IsA("TextLabel") and IsAutoStartGuiVisible(Object) and
+                string.lower(tostring(Object.Text)) == "start" then
+                local ParentButton = Object:FindFirstAncestorWhichIsA("GuiButton")
+                if ParentButton and IsAutoStartGuiVisible(ParentButton) then
+                    StartButton = ParentButton
+                    break
+                end
+            end
+        end
+        Root = Root.Parent
+    end
+
+    AutoEndlessTower.LastStartAttemptAt = CurrentTime
+    if not StartButton then
+        AutoEndlessTower.SetStatus("WAITING START BUTTON")
+        return true
+    end
+
+    AutoEndlessTower.SetStatus("STARTING RUN")
+    print("[AutoEndless] Activating Equip Extra Weapon Start")
+    ClickGuiButton(StartButton)
     return true
 end
 
@@ -3027,7 +3111,7 @@ local function TryAutoStartSoloDungeon()
         return false
     end
 
-    if not IsInLobby or not IsInLobby() then
+    if not AutoLobbyStartGate.IsReady() then
         return false
     end
 
@@ -3485,9 +3569,14 @@ task.spawn(function()
     while true do
         task.wait(0.5)
         if _G.AutoJoinEndlessTower then
-            local Success, ErrorMessage = pcall(AutoEndlessTower.TryJoin)
-            if not Success then
-                AutoEndlessTower.SetStatus("ERROR: " .. tostring(ErrorMessage))
+            local StartSuccess, StartHandled = pcall(AutoEndlessTower.TryStartRun)
+            if not StartSuccess then
+                AutoEndlessTower.SetStatus("ERROR: " .. tostring(StartHandled))
+            elseif not StartHandled then
+                local JoinSuccess, JoinError = pcall(AutoEndlessTower.TryJoin)
+                if not JoinSuccess then
+                    AutoEndlessTower.SetStatus("ERROR: " .. tostring(JoinError))
+                end
             end
         elseif AutoEndlessTower.Status ~= "OFF" then
             AutoEndlessTower.SetStatus("OFF")
