@@ -173,6 +173,25 @@ AutoEndlessTower = {
     Status = "OFF",
     Refresh = nil
 }
+AutoEndlessCard = AutoEndlessCard or {
+    Enabled = false,
+    UnlockPaid = false,
+    MinGoldReserve = 0,
+    Status = "OFF",
+    Generation = 0,
+    LastSignature = nil,
+    Pending = false,
+    WaitingUnlock = false,
+    Connection = nil,
+    Keywords = {
+        {"critical damage", 120}, {"crit damage", 120}, {"critical rate", 115}, {"crit rate", 115},
+        {"critical chance", 115}, {"skill damage", 110}, {"weapon damage", 105}, {"attack damage", 100},
+        {"damage", 90}, {"dmg", 90}, {"attack speed", 85}, {"attack", 80}, {"atk", 80},
+        {"penetration", 75}, {"armor break", 75}, {"fire damage", 70}, {"ice damage", 70},
+        {"lightning damage", 70}, {"poison damage", 70}, {"bleed damage", 70}
+    },
+    DefensivePatterns = {"damage reduction", "damage taken", "defense", "health", "shield", "resistance", "resist"}
+}
 
 function AutoEndlessTower.NormalizeStartingRound(Value)
     Value = math.floor(tonumber(Value) or 0)
@@ -213,6 +232,9 @@ local Config = {
     AutoJoinEndlessTower = false,
     EndlessTowerStartingRound = 0,
     EndlessTowerMaxPlayers = 1,
+    AutoPickEndlessOffensiveCard = false,
+    AutoUnlockEndlessPaidCard = false,
+    EndlessCardMinGoldReserve = 0,
     AutoRejoin = true,
     LobbyPlaceId = 0,
     RecoveryPending = false,
@@ -493,6 +515,9 @@ local function LoadConfig()
     Config.AutoJoinEndlessTower = Config.AutoJoinEndlessTower == true
     Config.EndlessTowerStartingRound = AutoEndlessTower.NormalizeStartingRound(Config.EndlessTowerStartingRound)
     Config.EndlessTowerMaxPlayers = math.floor(ClampNumber(Config.EndlessTowerMaxPlayers, 1, 4, 1))
+    Config.AutoPickEndlessOffensiveCard = Config.AutoPickEndlessOffensiveCard == true
+    Config.AutoUnlockEndlessPaidCard = Config.AutoUnlockEndlessPaidCard == true
+    Config.EndlessCardMinGoldReserve = math.max(0, math.floor(tonumber(Config.EndlessCardMinGoldReserve) or 0))
     Config.AutoRejoin = Config.AutoRejoin ~= false
     Config.LobbyPlaceId = math.max(0, math.floor(tonumber(Config.LobbyPlaceId) or 0))
     Config.RecoveryPending = Config.RecoveryPending == true
@@ -542,6 +567,9 @@ local function SaveConfig()
     Config.AutoJoinEndlessTower = _G.AutoJoinEndlessTower
     Config.EndlessTowerStartingRound = AutoEndlessTower.StartingRound
     Config.EndlessTowerMaxPlayers = AutoEndlessTower.MaxPlayers
+    Config.AutoPickEndlessOffensiveCard = AutoEndlessCard.Enabled
+    Config.AutoUnlockEndlessPaidCard = AutoEndlessCard.UnlockPaid
+    Config.EndlessCardMinGoldReserve = AutoEndlessCard.MinGoldReserve
     Config.AutoRejoin = _G.AutoRejoin
     Config.OreSellModes = OreSellModes or Config.OreSellModes
     local Berhasil, HasilJSON = pcall(function()
@@ -562,6 +590,10 @@ AutoStartWorldId = Config.AutoStartWorldId
 AutoStartDifficulty = Config.AutoStartDifficulty
 AutoEndlessTower.StartingRound = Config.EndlessTowerStartingRound
 AutoEndlessTower.MaxPlayers = Config.EndlessTowerMaxPlayers
+AutoEndlessCard.Enabled = Config.AutoPickEndlessOffensiveCard
+AutoEndlessCard.UnlockPaid = Config.AutoUnlockEndlessPaidCard
+AutoEndlessCard.MinGoldReserve = Config.EndlessCardMinGoldReserve
+AutoEndlessCard.Status = AutoEndlessCard.Enabled and "WAIT CARDS" or "OFF"
 AutoForge.RecipeId = Config.AutoForgeRecipeId
 AutoForge.Composition = Config.AutoForgeOreComposition
 AutoForge.RequestedCrafts = Config.AutoForgeRequestedCrafts
@@ -1357,6 +1389,188 @@ local function GetFrameworkModule()
     end
     return FrameworkModule
 end
+
+function AutoEndlessCard.SetStatus(Status)
+    AutoEndlessCard.Status = Status
+    if AutoEndlessTower.Refresh then
+        pcall(AutoEndlessTower.Refresh)
+    end
+end
+
+function AutoEndlessCard.GetModules()
+    local Modules = GetFrameworkModule().Modules
+    local WorldBonusCardUtil = Modules.WorldBonusCardUtil
+    return WorldBonusCardUtil, Modules.CurrencyUtil, Modules.TranslationUtil, WorldBonusCardUtil.RemoteEvent
+end
+
+function AutoEndlessCard.GetText(Card, CardInfo, TranslationUtil)
+    local Parts = {tostring(Card.ID or ""), tostring(CardInfo.Name or ""), tostring(CardInfo.Desc or "")}
+    for _, Key in ipairs({CardInfo.Name, CardInfo.Desc}) do
+        if Key then
+            local Success, Text = pcall(TranslationUtil.TranslateByKey, TranslationUtil, Key)
+            if Success and Text then
+                table.insert(Parts, tostring(Text))
+            end
+        end
+    end
+    return string.lower(table.concat(Parts, " "))
+end
+
+function AutoEndlessCard.ScoreText(Text)
+    for _, Pattern in ipairs(AutoEndlessCard.DefensivePatterns) do
+        if string.find(Text, Pattern, 1, true) then
+            return 0
+        end
+    end
+    local Score = 0
+    for _, Entry in ipairs(AutoEndlessCard.Keywords) do
+        if string.find(Text, Entry[1], 1, true) then
+            Score = math.max(Score, Entry[2])
+        end
+    end
+    return Score
+end
+
+function AutoEndlessCard.BuildSignature(Cards)
+    local Parts = {}
+    for Index, Card in ipairs(Cards or {}) do
+        table.insert(Parts, table.concat({Index, tostring(Card.ID), Card.Paid and "1" or "0", tostring(Card.Price or 0)}, ":"))
+    end
+    return table.concat(Parts, "|")
+end
+
+function AutoEndlessCard.IsBetter(Left, Right)
+    if not Right then
+        return true
+    end
+    if Left.Offensive ~= Right.Offensive then
+        return Left.Offensive
+    end
+    if Left.Rarity ~= Right.Rarity then
+        return Left.Rarity > Right.Rarity
+    end
+    if Left.Score ~= Right.Score then
+        return Left.Score > Right.Score
+    end
+    if Left.Paid ~= Right.Paid then
+        return not Left.Paid
+    end
+    return Left.Index < Right.Index
+end
+
+function AutoEndlessCard.FindBest(Cards)
+    local WorldBonusCardUtil, CurrencyUtil, TranslationUtil = AutoEndlessCard.GetModules()
+    local CurrencyId = CurrencyUtil.CurrencyIds.Currency1
+    local Best = nil
+    local BestFree = nil
+    for Index, Card in ipairs(Cards or {}) do
+        local CardInfo = type(Card) == "table" and Card.ID and WorldBonusCardUtil:GetCardInfo(Card.ID) or nil
+        if CardInfo then
+            local Candidate = {
+                Index = Index,
+                Card = Card,
+                Paid = Card.Paid == true,
+                Price = math.max(0, math.floor(tonumber(Card.Price) or 0)),
+                Rarity = tonumber(WorldBonusCardUtil:GetCardRarity(CardInfo)) or 0
+            }
+            Candidate.Score = AutoEndlessCard.ScoreText(AutoEndlessCard.GetText(Card, CardInfo, TranslationUtil))
+            Candidate.Offensive = Candidate.Score > 0
+            if not Candidate.Paid and AutoEndlessCard.IsBetter(Candidate, BestFree) then
+                BestFree = Candidate
+            end
+            local Eligible = not Candidate.Paid
+            if Candidate.Paid and AutoEndlessCard.UnlockPaid then
+                Eligible = CurrencyUtil:Has(LocalPlayer, CurrencyId,
+                    Candidate.Price + AutoEndlessCard.MinGoldReserve)
+            end
+            if Eligible and AutoEndlessCard.IsBetter(Candidate, Best) then
+                Best = Candidate
+            end
+        end
+    end
+    return Best, BestFree
+end
+
+function AutoEndlessCard.Select(RemoteEvent, Candidate)
+    AutoEndlessCard.Pending = true
+    AutoEndlessCard.WaitingUnlock = false
+    AutoEndlessCard.SetStatus("SELECT " .. tostring(Candidate.Index))
+    RemoteEvent:FireServer("Select", Candidate.Index)
+end
+
+function AutoEndlessCard.HandleCards(Cards)
+    if not AutoEndlessCard.Enabled then
+        AutoEndlessCard.SetStatus("OFF")
+        return
+    end
+    local CurrentWorld = workspace:FindFirstChild("World")
+    if not CurrentWorld or not CurrentWorld:FindFirstChild("Start") or type(Cards) ~= "table" then
+        AutoEndlessCard.SetStatus("WAIT ENDLESS TOWER")
+        return
+    end
+
+    local Signature = AutoEndlessCard.BuildSignature(Cards)
+    if Signature == AutoEndlessCard.LastSignature and AutoEndlessCard.Pending then
+        return
+    end
+    AutoEndlessCard.Generation = AutoEndlessCard.Generation + 1
+    local Generation = AutoEndlessCard.Generation
+    AutoEndlessCard.LastSignature = Signature
+    local Candidate, BestFree = AutoEndlessCard.FindBest(Cards)
+    if not Candidate then
+        AutoEndlessCard.Pending = false
+        AutoEndlessCard.SetStatus("NO AFFORDABLE CARD")
+        return
+    end
+
+    local _, _, _, RemoteEvent = AutoEndlessCard.GetModules()
+    if Candidate.Paid then
+        AutoEndlessCard.Pending = true
+        AutoEndlessCard.WaitingUnlock = true
+        AutoEndlessCard.SetStatus("UNLOCK " .. tostring(Candidate.Index) .. " · " .. tostring(Candidate.Price) .. " GOLD")
+        RemoteEvent:FireServer("Unlock", Candidate.Index)
+        task.delay(3, function()
+            if AutoEndlessCard.Generation ~= Generation or not AutoEndlessCard.WaitingUnlock then
+                return
+            end
+            AutoEndlessCard.WaitingUnlock = false
+            if BestFree then
+                AutoEndlessCard.Select(RemoteEvent, BestFree)
+            else
+                AutoEndlessCard.Pending = false
+                AutoEndlessCard.SetStatus("UNLOCK TIMEOUT")
+            end
+        end)
+        return
+    end
+    AutoEndlessCard.Select(RemoteEvent, Candidate)
+end
+
+function AutoEndlessCard.Connect()
+    if AutoEndlessCard.Connection then
+        AutoEndlessCard.Connection:Disconnect()
+    end
+    local _, _, _, RemoteEvent = AutoEndlessCard.GetModules()
+    AutoEndlessCard.Connection = RemoteEvent.OnClientEvent:Connect(function(Action, ...)
+        if Action == "ShowCards" then
+            AutoEndlessCard.HandleCards((...))
+        elseif Action == "SelectResult" then
+            local Success, Index = ...
+            AutoEndlessCard.Generation = AutoEndlessCard.Generation + 1
+            AutoEndlessCard.Pending = false
+            AutoEndlessCard.WaitingUnlock = false
+            AutoEndlessCard.LastSignature = nil
+            AutoEndlessCard.SetStatus(Success and ("SELECTED " .. tostring(Index or 1)) or "SELECT FAILED")
+        end
+    end)
+end
+
+task.spawn(function()
+    local Success, ErrorMessage = pcall(AutoEndlessCard.Connect)
+    if not Success then
+        AutoEndlessCard.SetStatus("ERROR: " .. tostring(ErrorMessage))
+    end
+end)
 
 function AutoEndlessTower.GetHighestStartingRound()
     local Framework = GetFrameworkModule()
@@ -6976,10 +7190,14 @@ DungeonPage.Size = UDim2.fromScale(1, 1)
 DungeonPage.BackgroundTransparency = 1
 DungeonPage.Parent = UtilityPages
 
-local TowerPage = Instance.new("Frame")
+local TowerPage = Instance.new("ScrollingFrame")
 TowerPage.Name = "TowerPage"
 TowerPage.Size = UDim2.fromScale(1, 1)
 TowerPage.BackgroundTransparency = 1
+TowerPage.BorderSizePixel = 0
+TowerPage.CanvasSize = UDim2.fromOffset(0, 380)
+TowerPage.ScrollBarThickness = 3
+TowerPage.ScrollBarImageColor3 = Theme.Accent
 TowerPage.Visible = false
 TowerPage.Parent = UtilityPages
 
@@ -7019,6 +7237,55 @@ end)
 EndlessPlayerCountDropdown.Activated:Connect(function()
     EndlessStartingRoundOptions.Visible = false
     EndlessPlayerCountOptions.Visible = not EndlessPlayerCountOptions.Visible
+end)
+
+AutoEndlessCard.PickToggle = CreateToggleRow(TowerPage, "Auto Pick Offensive Card", function()
+    return AutoEndlessCard.Enabled
+end, function(Value)
+    AutoEndlessCard.Enabled = Value
+    AutoEndlessCard.Generation = AutoEndlessCard.Generation + 1
+    AutoEndlessCard.Pending = false
+    AutoEndlessCard.WaitingUnlock = false
+    AutoEndlessCard.LastSignature = nil
+    AutoEndlessCard.SetStatus(Value and "WAIT CARDS" or "OFF")
+    SaveConfig()
+end)
+AutoEndlessCard.PickToggle.Name = "AutoPickEndlessCardToggle"
+AutoEndlessCard.PickToggle.Position = UDim2.fromOffset(0, 238)
+AutoEndlessCard.PickToggle.Size = UDim2.new(1, -6, 0, 34)
+
+AutoEndlessCard.UnlockToggle = CreateToggleRow(TowerPage, "Unlock Paid Offensive Card", function()
+    return AutoEndlessCard.UnlockPaid
+end, function(Value)
+    AutoEndlessCard.UnlockPaid = Value
+    SaveConfig()
+end)
+AutoEndlessCard.UnlockToggle.Name = "AutoUnlockEndlessPaidCardToggle"
+AutoEndlessCard.UnlockToggle.Position = UDim2.fromOffset(0, 278)
+AutoEndlessCard.UnlockToggle.Size = UDim2.new(1, -6, 0, 34)
+
+AutoEndlessCard.ReserveLabel = CreateText(TowerPage, "Minimum Gold Reserve", 11, Theme.Muted)
+AutoEndlessCard.ReserveLabel.Position = UDim2.fromOffset(0, 318)
+AutoEndlessCard.ReserveLabel.Size = UDim2.new(1, -6, 0, 18)
+AutoEndlessCard.ReserveInput = Instance.new("TextBox")
+AutoEndlessCard.ReserveInput.Name = "EndlessCardMinGoldReserveInput"
+AutoEndlessCard.ReserveInput.Position = UDim2.fromOffset(0, 338)
+AutoEndlessCard.ReserveInput.Size = UDim2.new(1, -6, 0, 32)
+AutoEndlessCard.ReserveInput.BackgroundColor3 = Theme.Surface
+AutoEndlessCard.ReserveInput.BorderSizePixel = 0
+AutoEndlessCard.ReserveInput.ClearTextOnFocus = false
+AutoEndlessCard.ReserveInput.Font = Enum.Font.Gotham
+AutoEndlessCard.ReserveInput.PlaceholderText = "0"
+AutoEndlessCard.ReserveInput.Text = tostring(AutoEndlessCard.MinGoldReserve)
+AutoEndlessCard.ReserveInput.TextColor3 = Theme.Text
+AutoEndlessCard.ReserveInput.TextSize = 12
+AutoEndlessCard.ReserveInput.Parent = TowerPage
+AddCorner(AutoEndlessCard.ReserveInput, 6)
+AddStroke(AutoEndlessCard.ReserveInput)
+AutoEndlessCard.ReserveInput.FocusLost:Connect(function()
+    AutoEndlessCard.MinGoldReserve = math.max(0, math.floor(tonumber(AutoEndlessCard.ReserveInput.Text) or 0))
+    AutoEndlessCard.ReserveInput.Text = tostring(AutoEndlessCard.MinGoldReserve)
+    SaveConfig()
 end)
 
 local PetExpeditionPage = Instance.new("Frame")
@@ -7453,7 +7720,8 @@ local function BuildEndlessTowerPage()
 
     local ResolvedStartingRound = AutoEndlessTower.ResolveStartingRound()
     EndlessStatusLabel.Text = "STATUS: " .. tostring(AutoEndlessTower.Status) .. "\nHIGHEST ROUND: " ..
-                                  tostring(MaxRound) .. " · NEXT START: " .. tostring(ResolvedStartingRound)
+                                  tostring(MaxRound) .. " · NEXT START: " .. tostring(ResolvedStartingRound) ..
+                                  "\nCARD: " .. tostring(AutoEndlessCard.Status)
 end
 AutoEndlessTower.Refresh = BuildEndlessTowerPage
 

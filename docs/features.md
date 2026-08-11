@@ -102,6 +102,9 @@ Brief behavior notes for `holygrail/script-v6-full-run-dg.lua`.
 - It teleports through the selected slot's `Touch` portal, waits for `MainGui.ScreenMatch_Endless`, then sends the create-room payload.
 - Room creation uses `GameMatchRE:FireServer("CreatRoom", "Endless1", 1, playerCount, startingRound)` and takes priority over normal dungeon auto-start.
 - After teleport, Auto Join detects the visible `Equip Extra Weapon` modal and activates its `Start` button before normal farming continues.
+- Tower card picker listens only for `WorldBonusCardUtil.RemoteEvent` `ShowCards` events, ranks translated damage/attack/critical and other offensive cards above defensive or utility cards, then uses rarity as tie-breaker.
+- Optional paid-card unlock checks `price + minimum gold reserve`, unlocks only the card that will be selected, waits for refreshed card state, and falls back to the best free card after a three-second timeout.
+- Repeated `ShowCards` payloads and pending selections are deduplicated; `SelectResult` resets state without any heartbeat or polling loop.
 - Normal dungeon restart and Endless Auto Join wait for an eight-second lobby/character loading grace before creating rooms.
 - Endless room creation retries at most every ten seconds and stops retrying once `LocalPlayer.EnterRoomId` is assigned.
 - Full ore backpacks wait for enabled Auto Sell before another join attempt.
