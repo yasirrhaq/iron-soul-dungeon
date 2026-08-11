@@ -101,7 +101,10 @@ Brief behavior notes for `holygrail/script-v6-full-run-dg.lua`.
 - Auto Join scans the Endless slots `workspace.MatchRoom.Room9` and `Room10`, requiring `PlayersCount == 0` and empty room state.
 - It teleports through the selected slot's `Touch` portal, waits for `MainGui.ScreenMatch_Endless`, then sends the create-room payload.
 - Room creation uses `GameMatchRE:FireServer("CreatRoom", "Endless1", 1, playerCount, startingRound)` and takes priority over normal dungeon auto-start.
-- After teleport, Auto Join detects the visible `Equip Extra Weapon` modal and activates its `Start` button before normal farming continues.
+- After teleport, Auto Join detects the visible `Equip Extra Weapon` modal, equips the configured extra weapon, confirms `ExtraWeaponUUID`, then activates `Start` before normal farming continues.
+- Extra weapon defaults to `Highest Damage (Auto)`. Utility -> Tower also lists eligible specific weapons as translated name, fortify `+N`, and current `DMG`.
+- Primary, secondary, and time-limited weapons are excluded. A missing or newly ineligible saved UUID falls back to current highest damage without deleting the saved preference.
+- Extra weapon options refresh only from owned-equipment and equip-slot data events. A bounded timeout retries highest damage once, then starts the run instead of leaving the modal stuck.
 - Tower card picker listens only for `WorldBonusCardUtil.RemoteEvent` `ShowCards` events, ranks translated damage/attack/critical and other offensive cards above defensive or utility cards, then uses rarity as tie-breaker.
 - Optional paid-card unlock checks `price + minimum gold reserve`, unlocks only the card that will be selected, waits for refreshed card state, and falls back to the best free card after a three-second timeout.
 - Repeated `ShowCards` payloads and pending selections are deduplicated; `SelectResult` resets state without any heartbeat or polling loop.

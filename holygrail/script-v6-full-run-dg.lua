@@ -173,6 +173,16 @@ AutoEndlessTower = {
     Status = "OFF",
     Refresh = nil
 }
+AutoEndlessExtraWeapon = {
+    SelectedUUID = "",
+    Status = "AUTO",
+    ConfirmTimeout = 2,
+    RequestedUUID = nil,
+    RequestedAt = 0,
+    Attempt = 0,
+    Refresh = nil,
+    Connected = false
+}
 AutoEndlessCard = AutoEndlessCard or {
     Enabled = false,
     UnlockPaid = false,
@@ -232,6 +242,7 @@ local Config = {
     AutoJoinEndlessTower = false,
     EndlessTowerStartingRound = 0,
     EndlessTowerMaxPlayers = 1,
+    EndlessExtraWeaponUUID = "",
     AutoPickEndlessOffensiveCard = false,
     AutoUnlockEndlessPaidCard = false,
     EndlessCardMinGoldReserve = 0,
@@ -515,6 +526,8 @@ local function LoadConfig()
     Config.AutoJoinEndlessTower = Config.AutoJoinEndlessTower == true
     Config.EndlessTowerStartingRound = AutoEndlessTower.NormalizeStartingRound(Config.EndlessTowerStartingRound)
     Config.EndlessTowerMaxPlayers = math.floor(ClampNumber(Config.EndlessTowerMaxPlayers, 1, 4, 1))
+    Config.EndlessExtraWeaponUUID = type(Config.EndlessExtraWeaponUUID) == "string" and
+                                            Config.EndlessExtraWeaponUUID or ""
     Config.AutoPickEndlessOffensiveCard = Config.AutoPickEndlessOffensiveCard == true
     Config.AutoUnlockEndlessPaidCard = Config.AutoUnlockEndlessPaidCard == true
     Config.EndlessCardMinGoldReserve = math.max(0, math.floor(tonumber(Config.EndlessCardMinGoldReserve) or 0))
@@ -567,6 +580,7 @@ local function SaveConfig()
     Config.AutoJoinEndlessTower = _G.AutoJoinEndlessTower
     Config.EndlessTowerStartingRound = AutoEndlessTower.StartingRound
     Config.EndlessTowerMaxPlayers = AutoEndlessTower.MaxPlayers
+    Config.EndlessExtraWeaponUUID = AutoEndlessExtraWeapon.SelectedUUID
     Config.AutoPickEndlessOffensiveCard = AutoEndlessCard.Enabled
     Config.AutoUnlockEndlessPaidCard = AutoEndlessCard.UnlockPaid
     Config.EndlessCardMinGoldReserve = AutoEndlessCard.MinGoldReserve
@@ -590,6 +604,7 @@ AutoStartWorldId = Config.AutoStartWorldId
 AutoStartDifficulty = Config.AutoStartDifficulty
 AutoEndlessTower.StartingRound = Config.EndlessTowerStartingRound
 AutoEndlessTower.MaxPlayers = Config.EndlessTowerMaxPlayers
+AutoEndlessExtraWeapon.SelectedUUID = Config.EndlessExtraWeaponUUID
 AutoEndlessCard.Enabled = Config.AutoPickEndlessOffensiveCard
 AutoEndlessCard.UnlockPaid = Config.AutoUnlockEndlessPaidCard
 AutoEndlessCard.MinGoldReserve = Config.EndlessCardMinGoldReserve
@@ -1388,6 +1403,110 @@ local function GetFrameworkModule()
         FrameworkModule = require(ReplicatedStorage:WaitForChild("Framework"))
     end
     return FrameworkModule
+end
+
+function AutoEndlessExtraWeapon.GetModules()
+    local Framework = GetFrameworkModule()
+    local EquipmentRE = ReplicatedStorage:WaitForChild("Framework"):WaitForChild("Gameplay"):
+                            WaitForChild("EquipmentSystem"):WaitForChild("EquipmentRE")
+    return Framework.Modules.DataUtil, Framework.Modules.EquipmentUtil, Framework.Modules.TimeLimitUtil,
+        Framework.Modules.TranslationUtil, EquipmentRE
+end
+
+function AutoEndlessExtraWeapon.SetStatus(Status)
+    if AutoEndlessExtraWeapon.Status == Status then
+        return
+    end
+    AutoEndlessExtraWeapon.Status = Status
+    if AutoEndlessTower.Refresh then
+        pcall(AutoEndlessTower.Refresh)
+    end
+end
+
+function AutoEndlessExtraWeapon.GetOptions()
+    local DataUtil, EquipmentUtil, TimeLimitUtil, TranslationUtil = AutoEndlessExtraWeapon.GetModules()
+    local Owned = DataUtil:GetValue(LocalPlayer, {"Equipment", "Owned"}) or {}
+    local EquipSlots = DataUtil:GetValue(LocalPlayer, {"Equipment", "EquipSlots"}) or {}
+    local Options = {}
+
+    for UUID, Item in pairs(Owned) do
+        if type(Item) == "table" and Item.Type == "Weapon" and UUID ~= EquipSlots.Weapon and
+            UUID ~= EquipSlots.Weapon2 and not TimeLimitUtil:IsTimeLimited(Item) then
+            local Definition = EquipmentUtil:GetDef(Item.ID)
+            if Definition then
+                local Damage = tonumber(EquipmentUtil:GetDmgOrHpByInfo(LocalPlayer, Item, Definition)) or 0
+                local DisplayName = tostring(Definition.ID or Item.ID or UUID)
+                local TranslationKey = "K_" .. string.upper(tostring(Definition.ID or Item.ID or ""))
+                local Success, Translated = pcall(TranslationUtil.TranslateByKey, TranslationUtil, TranslationKey)
+                if Success and type(Translated) == "string" and Translated ~= "" then
+                    DisplayName = Translated
+                end
+                local DisplayedFortify = Item.Fortify and Item.Fortify - 1 or 0
+                local FortifySuffix = DisplayedFortify > 0 and string.format(" (+%d)", DisplayedFortify) or ""
+                table.insert(Options, {
+                    UUID = UUID,
+                    Label = DisplayName .. FortifySuffix .. " | DMG " .. tostring(Damage),
+                    Damage = Damage,
+                    Rarity = tonumber(EquipmentUtil:GetOreRarity(Item.MaxOre)) or 0,
+                    Sort = tonumber(Definition.Sort) or math.huge
+                })
+            end
+        end
+    end
+
+    table.sort(Options, function(Left, Right)
+        if Left.Damage ~= Right.Damage then
+            return Left.Damage > Right.Damage
+        elseif Left.Rarity ~= Right.Rarity then
+            return Left.Rarity > Right.Rarity
+        elseif Left.Sort ~= Right.Sort then
+            return Left.Sort < Right.Sort
+        end
+        return tostring(Left.UUID) < tostring(Right.UUID)
+    end)
+    return Options
+end
+
+function AutoEndlessExtraWeapon.ResolveSelection()
+    local Options = AutoEndlessExtraWeapon.GetOptions()
+    if AutoEndlessExtraWeapon.SelectedUUID ~= "" then
+        for _, Option in ipairs(Options) do
+            if Option.UUID == AutoEndlessExtraWeapon.SelectedUUID then
+                return Option, false, Options
+            end
+        end
+    end
+    return Options[1], AutoEndlessExtraWeapon.SelectedUUID ~= "", Options
+end
+
+function AutoEndlessExtraWeapon.RequestEquip(UUID)
+    if not UUID or LocalPlayer:GetAttribute("ExtraWeaponUUID") == UUID then
+        return UUID ~= nil
+    end
+    local _, _, _, _, EquipmentRE = AutoEndlessExtraWeapon.GetModules()
+    EquipmentRE:FireServer("RequestSetExtraWeapon", UUID)
+    return false
+end
+
+function AutoEndlessExtraWeapon.ResetRequest()
+    AutoEndlessExtraWeapon.RequestedUUID = nil
+    AutoEndlessExtraWeapon.RequestedAt = 0
+    AutoEndlessExtraWeapon.Attempt = 0
+end
+
+function AutoEndlessExtraWeapon.Connect()
+    if AutoEndlessExtraWeapon.Connected then
+        return
+    end
+    AutoEndlessExtraWeapon.Connected = true
+    local DataUtil = AutoEndlessExtraWeapon.GetModules()
+    local function Refresh()
+        if AutoEndlessExtraWeapon.Refresh then
+            pcall(AutoEndlessExtraWeapon.Refresh)
+        end
+    end
+    DataUtil:ListenFor(LocalPlayer, {"Equipment", "Owned"}, Refresh)
+    DataUtil:ListenFor(LocalPlayer, {"Equipment", "EquipSlots"}, Refresh)
 end
 
 function AutoEndlessCard.SetStatus(Status)
@@ -3278,6 +3397,7 @@ function AutoEndlessTower.TryStartRun()
         end
     end
     if not Title then
+        AutoEndlessExtraWeapon.ResetRequest()
         return false
     end
 
@@ -3309,8 +3429,52 @@ function AutoEndlessTower.TryStartRun()
         return true
     end
 
+    local Candidate, FellBack, Options = AutoEndlessExtraWeapon.ResolveSelection()
+    if not Candidate then
+        AutoEndlessExtraWeapon.SetStatus("NO ELIGIBLE WEAPON")
+        AutoEndlessExtraWeapon.ResetRequest()
+        AutoEndlessTower.SetStatus("STARTING RUN")
+        ClickGuiButton(StartButton)
+        return true
+    end
+
+    if AutoEndlessExtraWeapon.Attempt == 0 then
+        AutoEndlessExtraWeapon.RequestedUUID = Candidate.UUID
+        AutoEndlessExtraWeapon.RequestedAt = CurrentTime
+        AutoEndlessExtraWeapon.Attempt = 1
+        AutoEndlessExtraWeapon.RequestEquip(Candidate.UUID)
+        AutoEndlessExtraWeapon.SetStatus((FellBack and "FALLBACK: " or "EQUIPPING: ") .. Candidate.Label)
+        return true
+    end
+
+    local EquippedUUID = LocalPlayer:GetAttribute("ExtraWeaponUUID")
+    if EquippedUUID == AutoEndlessExtraWeapon.RequestedUUID then
+        AutoEndlessExtraWeapon.SetStatus("EQUIPPED: " .. Candidate.Label)
+        AutoEndlessExtraWeapon.ResetRequest()
+        AutoEndlessTower.SetStatus("STARTING RUN")
+        print("[AutoEndless] Activating Equip Extra Weapon Start")
+        ClickGuiButton(StartButton)
+        return true
+    end
+
+    if CurrentTime - AutoEndlessExtraWeapon.RequestedAt < AutoEndlessExtraWeapon.ConfirmTimeout then
+        AutoEndlessExtraWeapon.SetStatus("WAITING EQUIP CONFIRM")
+        return true
+    end
+
+    if AutoEndlessExtraWeapon.Attempt == 1 then
+        local Highest = Options[1] or Candidate
+        AutoEndlessExtraWeapon.RequestedUUID = Highest.UUID
+        AutoEndlessExtraWeapon.RequestedAt = CurrentTime
+        AutoEndlessExtraWeapon.Attempt = 2
+        AutoEndlessExtraWeapon.RequestEquip(Highest.UUID)
+        AutoEndlessExtraWeapon.SetStatus("RETRY HIGHEST: " .. Highest.Label)
+        return true
+    end
+
+    AutoEndlessExtraWeapon.SetStatus("EQUIP TIMEOUT")
+    AutoEndlessExtraWeapon.ResetRequest()
     AutoEndlessTower.SetStatus("STARTING RUN")
-    print("[AutoEndless] Activating Equip Extra Weapon Start")
     ClickGuiButton(StartButton)
     return true
 end
@@ -7195,7 +7359,7 @@ TowerPage.Name = "TowerPage"
 TowerPage.Size = UDim2.fromScale(1, 1)
 TowerPage.BackgroundTransparency = 1
 TowerPage.BorderSizePixel = 0
-TowerPage.CanvasSize = UDim2.fromOffset(0, 380)
+TowerPage.CanvasSize = UDim2.fromOffset(0, 465)
 TowerPage.ScrollBarThickness = 3
 TowerPage.ScrollBarImageColor3 = Theme.Accent
 TowerPage.Visible = false
@@ -7224,19 +7388,32 @@ EndlessPlayerCountLabel.Size = UDim2.new(1, 0, 0, 18)
 local EndlessPlayerCountDropdown, EndlessPlayerCountOptions = CreateSelectorDropdown(TowerPage,
     "EndlessPlayerCount", 128, true)
 
+local EndlessExtraWeaponLabel = CreateText(TowerPage, "Extra Weapon", 11, Theme.Muted)
+EndlessExtraWeaponLabel.Position = UDim2.fromOffset(0, 174)
+EndlessExtraWeaponLabel.Size = UDim2.new(1, 0, 0, 18)
+local EndlessExtraWeaponDropdown, EndlessExtraWeaponOptions = CreateSelectorDropdown(TowerPage,
+    "EndlessExtraWeapon", 194, true)
+
 local EndlessStatusLabel = CreateText(TowerPage, "STATUS: OFF", 11, Theme.Muted)
 EndlessStatusLabel.Name = "EndlessStatusLabel"
-EndlessStatusLabel.Position = UDim2.fromOffset(0, 174)
-EndlessStatusLabel.Size = UDim2.new(1, 0, 0, 58)
+EndlessStatusLabel.Position = UDim2.fromOffset(0, 240)
+EndlessStatusLabel.Size = UDim2.new(1, 0, 0, 76)
 EndlessStatusLabel.TextWrapped = true
 
 EndlessStartingRoundDropdown.Activated:Connect(function()
     EndlessPlayerCountOptions.Visible = false
+    EndlessExtraWeaponOptions.Visible = false
     EndlessStartingRoundOptions.Visible = not EndlessStartingRoundOptions.Visible
 end)
 EndlessPlayerCountDropdown.Activated:Connect(function()
     EndlessStartingRoundOptions.Visible = false
+    EndlessExtraWeaponOptions.Visible = false
     EndlessPlayerCountOptions.Visible = not EndlessPlayerCountOptions.Visible
+end)
+EndlessExtraWeaponDropdown.Activated:Connect(function()
+    EndlessStartingRoundOptions.Visible = false
+    EndlessPlayerCountOptions.Visible = false
+    EndlessExtraWeaponOptions.Visible = not EndlessExtraWeaponOptions.Visible
 end)
 
 AutoEndlessCard.PickToggle = CreateToggleRow(TowerPage, "Auto Pick Offensive Card", function()
@@ -7251,7 +7428,7 @@ end, function(Value)
     SaveConfig()
 end)
 AutoEndlessCard.PickToggle.Name = "AutoPickEndlessCardToggle"
-AutoEndlessCard.PickToggle.Position = UDim2.fromOffset(0, 238)
+AutoEndlessCard.PickToggle.Position = UDim2.fromOffset(0, 322)
 AutoEndlessCard.PickToggle.Size = UDim2.new(1, -6, 0, 34)
 
 AutoEndlessCard.UnlockToggle = CreateToggleRow(TowerPage, "Unlock Paid Offensive Card", function()
@@ -7261,15 +7438,15 @@ end, function(Value)
     SaveConfig()
 end)
 AutoEndlessCard.UnlockToggle.Name = "AutoUnlockEndlessPaidCardToggle"
-AutoEndlessCard.UnlockToggle.Position = UDim2.fromOffset(0, 278)
+AutoEndlessCard.UnlockToggle.Position = UDim2.fromOffset(0, 362)
 AutoEndlessCard.UnlockToggle.Size = UDim2.new(1, -6, 0, 34)
 
 AutoEndlessCard.ReserveLabel = CreateText(TowerPage, "Minimum Gold Reserve", 11, Theme.Muted)
-AutoEndlessCard.ReserveLabel.Position = UDim2.fromOffset(0, 318)
+AutoEndlessCard.ReserveLabel.Position = UDim2.fromOffset(0, 402)
 AutoEndlessCard.ReserveLabel.Size = UDim2.new(1, -6, 0, 18)
 AutoEndlessCard.ReserveInput = Instance.new("TextBox")
 AutoEndlessCard.ReserveInput.Name = "EndlessCardMinGoldReserveInput"
-AutoEndlessCard.ReserveInput.Position = UDim2.fromOffset(0, 338)
+AutoEndlessCard.ReserveInput.Position = UDim2.fromOffset(0, 422)
 AutoEndlessCard.ReserveInput.Size = UDim2.new(1, -6, 0, 32)
 AutoEndlessCard.ReserveInput.BackgroundColor3 = Theme.Surface
 AutoEndlessCard.ReserveInput.BorderSizePixel = 0
@@ -7682,8 +7859,10 @@ end
 local function BuildEndlessTowerPage()
     EndlessStartingRoundOptions.Visible = false
     EndlessPlayerCountOptions.Visible = false
+    EndlessExtraWeaponOptions.Visible = false
     ClearSelectorOptions(EndlessStartingRoundOptions)
     ClearSelectorOptions(EndlessPlayerCountOptions)
+    ClearSelectorOptions(EndlessExtraWeaponOptions)
 
     local HighestStartingRound, MaxRound = AutoEndlessTower.GetHighestStartingRound()
     AddSelectorOption(EndlessStartingRoundOptions, "Highest Unlocked", true, function()
@@ -7718,12 +7897,43 @@ local function BuildEndlessTowerPage()
     EndlessPlayerCountOptions.Size = UDim2.new(1, 0, 0, 138)
     EndlessPlayerCountDropdown.Text = "  " .. tostring(AutoEndlessTower.MaxPlayers) .. "  \226\150\188"
 
+    local WeaponOptions = AutoEndlessExtraWeapon.GetOptions()
+    local SelectedWeaponLabel = "Highest Damage (Auto)"
+    local SelectedWeaponFound = AutoEndlessExtraWeapon.SelectedUUID == ""
+    AddSelectorOption(EndlessExtraWeaponOptions, "Highest Damage (Auto)", true, function()
+        AutoEndlessExtraWeapon.SelectedUUID = ""
+        AutoEndlessExtraWeapon.ResetRequest()
+        SaveConfig()
+        BuildEndlessTowerPage()
+    end)
+    for _, WeaponOption in ipairs(WeaponOptions) do
+        local Option = WeaponOption
+        if Option.UUID == AutoEndlessExtraWeapon.SelectedUUID then
+            SelectedWeaponLabel = Option.Label
+            SelectedWeaponFound = true
+        end
+        AddSelectorOption(EndlessExtraWeaponOptions, Option.Label, true, function()
+            AutoEndlessExtraWeapon.SelectedUUID = Option.UUID
+            AutoEndlessExtraWeapon.ResetRequest()
+            SaveConfig()
+            BuildEndlessTowerPage()
+        end)
+    end
+    if not SelectedWeaponFound then
+        SelectedWeaponLabel = "Highest Damage (Auto) [fallback]"
+    end
+    EndlessExtraWeaponOptions.Size = UDim2.new(1, 0, 0, math.min(180, 10 + (#WeaponOptions + 1) * 34))
+    EndlessExtraWeaponDropdown.Text = "  " .. SelectedWeaponLabel .. "  \226\150\188"
+
     local ResolvedStartingRound = AutoEndlessTower.ResolveStartingRound()
     EndlessStatusLabel.Text = "STATUS: " .. tostring(AutoEndlessTower.Status) .. "\nHIGHEST ROUND: " ..
                                   tostring(MaxRound) .. " · NEXT START: " .. tostring(ResolvedStartingRound) ..
-                                  "\nCARD: " .. tostring(AutoEndlessCard.Status)
+                                  "\nWEAPON: " .. tostring(AutoEndlessExtraWeapon.Status) .. "\nCARD: " ..
+                                  tostring(AutoEndlessCard.Status)
 end
 AutoEndlessTower.Refresh = BuildEndlessTowerPage
+AutoEndlessExtraWeapon.Refresh = BuildEndlessTowerPage
+AutoEndlessExtraWeapon.Connect()
 
 local function FindSelectedDifficultyName()
     for _, Entry in ipairs(DungeonCatalog.GetDifficultyCatalog(AutoStartWorldId)) do
@@ -7775,6 +7985,7 @@ local function SetUtilityPage(Name)
     DifficultyOptions.Visible = false
     EndlessStartingRoundOptions.Visible = false
     EndlessPlayerCountOptions.Visible = false
+    EndlessExtraWeaponOptions.Visible = false
     AutoPotionOverlay.Visible = false
     DungeonPage.Visible = Name == "Dungeon"
     TowerPage.Visible = Name == "Tower"
@@ -7807,6 +8018,7 @@ CloseMenuDropdowns = function()
     DifficultyOptions.Visible = false
     EndlessStartingRoundOptions.Visible = false
     EndlessPlayerCountOptions.Visible = false
+    EndlessExtraWeaponOptions.Visible = false
     AutoPotionOverlay.Visible = false
     AutoForgePage.Close()
     ForgeTargetsPage.CloseDropdowns()
