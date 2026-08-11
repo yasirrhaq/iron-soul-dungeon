@@ -127,6 +127,18 @@ AutoPetExpedition = {
     Refresh = nil,
     Token = {Alive = true}
 }
+AutoPetHatch = {
+    ConfirmTimeout = 3,
+    Status = "OFF",
+    Queued = false,
+    Pending = false,
+    RetryCount = 0,
+    PendingSignature = nil,
+    Generation = 0,
+    Connected = false,
+    Refresh = nil,
+    Token = {Alive = true}
+}
 
 function AutoPetExpedition.NormalizeSlotOrder(Value, MaxSlot)
     MaxSlot = math.max(1, math.floor(tonumber(MaxSlot) or 4))
@@ -227,6 +239,7 @@ local Config = {
     AutoPotionSelected = {},
     AutoPetExpedition = false,
     AutoClaimPetExpedition = false,
+    AutoPetHatch = false,
     PetExpeditionSlotOrder = {2, 3, 4},
     AutoBuyWantedItemIds = CopyMap(DefaultAutoBuyWantedItemIds),
     AutoSeasonBuyWantedItemIds = CopyMap(DefaultAutoSeasonBuyWantedItemIds),
@@ -510,6 +523,7 @@ local function LoadConfig()
     Config.AutoPotionSelected = NormalizeEnabledMap(Config.AutoPotionSelected, {})
     Config.AutoPetExpedition = Config.AutoPetExpedition == true
     Config.AutoClaimPetExpedition = Config.AutoClaimPetExpedition == true
+    Config.AutoPetHatch = Config.AutoPetHatch == true
     Config.PetExpeditionSlotOrder = AutoPetExpedition.NormalizeSlotOrder(Config.PetExpeditionSlotOrder, 99)
     Config.AutoBuyWantedItemIds = NormalizeEnabledMap(Config.AutoBuyWantedItemIds, DefaultAutoBuyWantedItemIds)
     Config.AutoSeasonBuyWantedItemIds = NormalizeEnabledMap(Config.AutoSeasonBuyWantedItemIds,
@@ -565,6 +579,7 @@ local function SaveConfig()
     Config.AutoPotionSelected = AutoPotion.Selected
     Config.AutoPetExpedition = _G.AutoPetExpedition
     Config.AutoClaimPetExpedition = _G.AutoClaimPetExpedition
+    Config.AutoPetHatch = _G.AutoPetHatch
     Config.PetExpeditionSlotOrder = AutoPetExpedition.SlotOrder
     Config.AutoBuyWantedItemIds = AutoBuyWantedItemIds or Config.AutoBuyWantedItemIds
     Config.AutoSeasonBuyWantedItemIds = AutoSeasonBuyWantedItemIds or Config.AutoSeasonBuyWantedItemIds
@@ -639,6 +654,7 @@ _G.AutoForge = Config.AutoForge
 _G.AutoPotion = Config.AutoPotion
 _G.AutoPetExpedition = Config.AutoPetExpedition
 _G.AutoClaimPetExpedition = Config.AutoClaimPetExpedition
+_G.AutoPetHatch = Config.AutoPetHatch
 _G.AutoJoinEndlessTower = Config.AutoJoinEndlessTower
 _G.AutoRejoin = Config.AutoRejoin
 
@@ -678,6 +694,11 @@ if _G.BugonAutoPetExpeditionRuntime and _G.BugonAutoPetExpeditionRuntime.Token t
     _G.BugonAutoPetExpeditionRuntime.Token.Alive = false
 end
 _G.BugonAutoPetExpeditionRuntime = AutoPetExpedition
+
+if _G.BugonAutoPetHatchRuntime and _G.BugonAutoPetHatchRuntime.Token then
+    _G.BugonAutoPetHatchRuntime.Token.Alive = false
+end
+_G.BugonAutoPetHatchRuntime = AutoPetHatch
 
 local SudutPutar = 0
 local Target = nil
@@ -1922,6 +1943,206 @@ task.spawn(function()
         end
     end
 end)
+
+function AutoPetHatch.SetStatus(Status)
+    if AutoPetHatch.Status ~= Status then
+        AutoPetHatch.Status = Status
+        if AutoPetHatch.Refresh then
+            pcall(AutoPetHatch.Refresh)
+        end
+    end
+end
+
+function AutoPetHatch.GetModules()
+    local Modules = GetFrameworkModule().Modules
+    return Modules.PetsHatchUtil, Modules.DataUtil, Modules.TimeUtil
+end
+
+function AutoPetHatch.GetEggs(PetsHatchUtil)
+    local Eggs = {}
+    for UUID, EggData in pairs(PetsHatchUtil:GetOwnedEggs(LocalPlayer) or {}) do
+        local ConfigData = EggData and PetsHatchUtil:GetEggCfg(EggData.EggId)
+        if ConfigData then
+            table.insert(Eggs, {
+                UUID = UUID,
+                EggData = EggData,
+                Rarity = tonumber(ConfigData.Rarity) or 0,
+                Sort = tonumber(ConfigData.Sort) or math.huge
+            })
+        end
+    end
+    table.sort(Eggs, function(Left, Right)
+        if Left.Rarity ~= Right.Rarity then
+            return Left.Rarity > Right.Rarity
+        elseif Left.Sort ~= Right.Sort then
+            return Left.Sort < Right.Sort
+        end
+        return tostring(Left.UUID) < tostring(Right.UUID)
+    end)
+    return Eggs
+end
+
+function AutoPetHatch.GetSignature(PetsHatchUtil)
+    local Parts = {}
+    for _, Egg in ipairs(AutoPetHatch.GetEggs(PetsHatchUtil)) do
+        table.insert(Parts, "E:" .. tostring(Egg.UUID) .. ":" .. tostring(Egg.EggData.EggId))
+    end
+    for SlotIndex = 1, 3 do
+        local SlotData = PetsHatchUtil:GetSlotData(LocalPlayer, SlotIndex)
+        table.insert(Parts, "S:" .. tostring(SlotIndex) .. ":" .. tostring(SlotData and SlotData.EggId or "") ..
+            ":" .. tostring(SlotData and SlotData.StartTime or ""))
+    end
+    return table.concat(Parts, "|")
+end
+
+function AutoPetHatch.Queue()
+    if not _G.AutoPetHatch or AutoPetHatch.Queued or AutoPetHatch.Pending or not AutoPetHatch.Token.Alive then
+        return
+    end
+    AutoPetHatch.Queued = true
+    task.defer(function()
+        AutoPetHatch.Queued = false
+        if not AutoPetHatch.Token.Alive or not _G.AutoPetHatch or AutoPetHatch.Pending then
+            return
+        end
+        local Success, ErrorMessage = pcall(AutoPetHatch.Reconcile)
+        if not Success then
+            AutoPetHatch.SetStatus("ERROR")
+            warn("[AutoPetHatch] " .. tostring(ErrorMessage))
+        end
+    end)
+end
+
+function AutoPetHatch.BeginConfirmation(Signature)
+    AutoPetHatch.Pending = true
+    AutoPetHatch.PendingSignature = Signature
+    local Generation = AutoPetHatch.Generation
+    task.delay(AutoPetHatch.ConfirmTimeout, function()
+        if not AutoPetHatch.Token.Alive or not _G.AutoPetHatch or Generation ~= AutoPetHatch.Generation or
+            not AutoPetHatch.Pending then
+            return
+        end
+        local PetsHatchUtil = AutoPetHatch.GetModules()
+        if AutoPetHatch.GetSignature(PetsHatchUtil) ~= AutoPetHatch.PendingSignature then
+            AutoPetHatch.Pending = false
+            AutoPetHatch.RetryCount = 0
+            AutoPetHatch.Queue()
+        elseif AutoPetHatch.RetryCount < 1 then
+            AutoPetHatch.Pending = false
+            AutoPetHatch.RetryCount = 1
+            AutoPetHatch.SetStatus("RETRYING")
+            AutoPetHatch.Queue()
+        else
+            AutoPetHatch.Pending = false
+            AutoPetHatch.SetStatus("WAITING EVENT")
+        end
+    end)
+end
+
+function AutoPetHatch.ScheduleCompletion(PetsHatchUtil, TimeUtil)
+    local Shortest = nil
+    for SlotIndex = 1, 3 do
+        local SlotData = PetsHatchUtil:GetSlotData(LocalPlayer, SlotIndex)
+        if SlotData and SlotData.EggId and not PetsHatchUtil:IsCompleted(SlotData) then
+            local EggConfig = PetsHatchUtil:GetEggCfg(SlotData.EggId)
+            if EggConfig then
+                local Duration = tonumber(EggConfig.HatchDuration)
+                local StartTime = tonumber(SlotData.StartTime)
+                if Duration and Duration > 0 and StartTime then
+                    local Remaining = math.max(0, Duration - (TimeUtil:GetNow() - StartTime))
+                    Shortest = Shortest and math.min(Shortest, Remaining) or Remaining
+                end
+            end
+        end
+    end
+    if not Shortest then
+        return
+    end
+    AutoPetHatch.Generation = AutoPetHatch.Generation + 1
+    local Generation = AutoPetHatch.Generation
+    task.delay(math.max(0.2, Shortest + 0.2), function()
+        if AutoPetHatch.Token.Alive and _G.AutoPetHatch and Generation == AutoPetHatch.Generation and
+            not AutoPetHatch.Pending then
+            AutoPetHatch.Queue()
+        end
+    end)
+end
+
+function AutoPetHatch.Reconcile()
+    if RejoinWatchdog.BlocksAutomation() then
+        AutoPetHatch.SetStatus("PAUSED - REJOIN")
+        return
+    end
+
+    local PetsHatchUtil, _, TimeUtil = AutoPetHatch.GetModules()
+    local Signature = AutoPetHatch.GetSignature(PetsHatchUtil)
+    for SlotIndex = 1, 3 do
+        local SlotData = PetsHatchUtil:GetSlotData(LocalPlayer, SlotIndex)
+        if SlotData and SlotData.EggId and PetsHatchUtil:IsCompleted(SlotData) then
+            AutoPetHatch.SetStatus("CLAIMING SLOT " .. tostring(SlotIndex))
+            AutoPetHatch.BeginConfirmation(Signature)
+            PetsHatchUtil:Claim(LocalPlayer, SlotIndex)
+            return
+        end
+    end
+
+    local EmptySlot = nil
+    for SlotIndex = 1, 3 do
+        local SlotData = PetsHatchUtil:GetSlotData(LocalPlayer, SlotIndex)
+        if not (SlotData and SlotData.EggId) then
+            EmptySlot = SlotIndex
+            break
+        end
+    end
+    local Eggs = AutoPetHatch.GetEggs(PetsHatchUtil)
+    if not EmptySlot then
+        AutoPetHatch.SetStatus("HATCHING")
+        AutoPetHatch.ScheduleCompletion(PetsHatchUtil, TimeUtil)
+        return
+    end
+    local Egg = Eggs[1]
+    if not Egg then
+        AutoPetHatch.SetStatus("NO EGGS")
+        AutoPetHatch.ScheduleCompletion(PetsHatchUtil, TimeUtil)
+        return
+    end
+
+    AutoPetHatch.SetStatus("HATCHING SLOT " .. tostring(EmptySlot))
+    AutoPetHatch.BeginConfirmation(Signature)
+    PetsHatchUtil:StartHatch(LocalPlayer, EmptySlot, Egg.UUID)
+    return
+end
+
+function AutoPetHatch.OnDataChanged()
+    AutoPetHatch.Generation = AutoPetHatch.Generation + 1
+    AutoPetHatch.Pending = false
+    AutoPetHatch.PendingSignature = nil
+    AutoPetHatch.RetryCount = 0
+    AutoPetHatch.Queue()
+end
+
+function AutoPetHatch.SetEnabled(Value)
+    _G.AutoPetHatch = Value == true
+    AutoPetHatch.Generation = AutoPetHatch.Generation + 1
+    AutoPetHatch.Pending = false
+    AutoPetHatch.RetryCount = 0
+    SaveConfig()
+    AutoPetHatch.SetStatus(_G.AutoPetHatch and "READY" or "OFF")
+    AutoPetHatch.Queue()
+end
+
+function AutoPetHatch.Connect()
+    if AutoPetHatch.Connected then
+        return
+    end
+    AutoPetHatch.Connected = true
+    local _, DataUtil = AutoPetHatch.GetModules()
+    DataUtil:ListenFor(LocalPlayer, {"PetHatch", "Egg"}, AutoPetHatch.OnDataChanged)
+    DataUtil:ListenFor(LocalPlayer, {"PetHatch", "Slots"}, AutoPetHatch.OnDataChanged)
+    AutoPetHatch.Queue()
+end
+
+AutoPetHatch.Connect()
 
 function AutoForge.GetKeyString()
     if not AutoForge.KeyString then
@@ -7521,6 +7742,21 @@ PetExpeditionStatusLabel.Position = UDim2.fromOffset(0, 168)
 PetExpeditionStatusLabel.Size = UDim2.new(1, 0, 0, 44)
 PetExpeditionStatusLabel.TextWrapped = true
 
+local AutoPetHatchToggle = CreateToggleRow(PetExpeditionPage, "Auto Hatch Egg", function()
+    return _G.AutoPetHatch
+end, function(Value)
+    AutoPetHatch.SetEnabled(Value)
+end)
+AutoPetHatchToggle.Name = "AutoPetHatchToggle"
+AutoPetHatchToggle.Position = UDim2.fromOffset(0, 220)
+AutoPetHatchToggle.Size = UDim2.new(1, 0, 0, 34)
+
+local PetHatchStatusLabel = CreateText(PetExpeditionPage, "HATCH: OFF", 11, Theme.Muted)
+PetHatchStatusLabel.Name = "PetHatchStatusLabel"
+PetHatchStatusLabel.Position = UDim2.fromOffset(0, 260)
+PetHatchStatusLabel.Size = UDim2.new(1, 0, 0, 44)
+PetHatchStatusLabel.TextWrapped = true
+
 local function RefreshPetExpeditionUI()
     if not PetExpeditionSlotOrderInput:IsFocused() then
         PetExpeditionSlotOrderInput.Text = AutoPetExpedition.FormatSlotOrder(AutoPetExpedition.SlotOrder)
@@ -7532,6 +7768,7 @@ local function RefreshPetExpeditionUI()
     PetExpeditionChanceLabel.Text = Success and
         ("DAILY CHANCES: " .. tostring(Remaining) .. "/" .. tostring(Limit)) or "DAILY CHANCES: UNAVAILABLE"
     PetExpeditionStatusLabel.Text = "STATUS: " .. tostring(AutoPetExpedition.Status)
+    PetHatchStatusLabel.Text = "HATCH: " .. tostring(AutoPetHatch.Status)
 end
 
 PetExpeditionSlotOrderInput.FocusLost:Connect(function()
@@ -7541,6 +7778,7 @@ PetExpeditionSlotOrderInput.FocusLost:Connect(function()
     RefreshPetExpeditionUI()
 end)
 AutoPetExpedition.Refresh = RefreshPetExpeditionUI
+AutoPetHatch.Refresh = RefreshPetExpeditionUI
 RefreshPetExpeditionUI()
 
 local DungeonLabel = CreateText(DungeonPage, "Dungeon", 11, Theme.Muted)

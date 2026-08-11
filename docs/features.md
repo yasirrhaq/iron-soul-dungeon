@@ -10,7 +10,7 @@ Brief behavior notes for `holygrail/script-v6-full-run-dg.lua`.
 - `Script` toggles main automation; disabling it clears target and moves character upward.
 - `Underground Mode`, `Auto Replay`, and height slider preserve previous farm behavior.
 - `Perfect Forge`, `Auto Buy`, `Auto Sell`, and `Season Buy` toggles persist to `IronSoulConfig/YasirConfigV3.json`.
-- `PETS` utility page persists Auto Expedition, Auto Claim Expedition, and comma-separated slot priority; default `2,3,4` excludes slot 1.
+- `PETS` utility page persists Auto Expedition, Auto Claim Expedition, Auto Hatch Egg, and comma-separated expedition slot priority; default `2,3,4` excludes slot 1.
 
 ## Pet Expedition
 
@@ -19,6 +19,15 @@ Brief behavior notes for `holygrail/script-v6-full-run-dg.lua`.
 - Dispatch uses first empty slot in configured order and highest-affinity eligible unequipped, non-time-limited pet.
 - Slot order accepts unique values from current game slot range; empty order disables dispatch while claims continue.
 - Claim and dispatch wait for replicated slot confirmation so shared server lock never receives overlapping requests.
+
+## Pet Egg Hatching
+
+- Auto Hatch claims completed hatch slots before filling empty slots `1-3` with owned eggs.
+- Egg priority is higher rarity, lower game sort value, then stable UUID order.
+- Owned-egg and hatch-slot data events queue one deferred reconciliation; each pass performs at most one claim or start request.
+- Empty egg inventory performs no remote calls. Active hatch slots use one timer aimed at the nearest completion instead of `Heartbeat` or a polling loop.
+- Each action waits for replicated hatch data, retries once after a bounded timeout, then sleeps until a real data event.
+- Rejoin recovery pauses hatch actions. Auto Hatch does not buy eggs or spend Robux to skip timers.
 
 ## Farming And Combat
 
