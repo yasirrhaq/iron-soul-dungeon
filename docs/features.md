@@ -25,7 +25,9 @@ Brief behavior notes for `holygrail/script-v6-full-run-dg.lua`.
 - Main loop skips lobby, scans dungeon workspace, then targets nearest live humanoid enemy.
 - Character orbits target every heartbeat using configured height and radius.
 - Melee attacks fire through `VirtualUser` and equipped tool activation when target stays inside kill-aura range.
-- Auto skill loop presses `G`, `R`, `E`, then `Q` by priority when UI skill cooldown state says ready.
+- Auto skill loop bursts every ready skill in `G`, `R`, `E`, then `Q` priority through original GUI button down/up callbacks, with keyboard fallback when callback firing is unavailable.
+- Auto-triggered skills suppress local particles, sound, camera, film, and lighting render methods for an eight-second multi-stage window while leaving bullet dispatch and velocity processing intact.
+- Farm UI persists a `3x`-`8x` Skill Network Burst multiplier. Native callback fires once, then each captured Auto Skill `BulletShoot` payload is replayed `multiplier - 1` times at `0.04s` spacing; `SkillAction` is never duplicated.
 - Weapon switch presses `C` only when blocking skills are not ready and switch UI is off cooldown.
 
 ## Targets

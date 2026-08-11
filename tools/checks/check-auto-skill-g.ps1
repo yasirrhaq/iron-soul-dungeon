@@ -28,7 +28,7 @@ foreach ($scriptPath in $scriptPaths) {
     $guard = [regex]::Match($content, 'local\s+function\s+IsSkillButtonEquipped\(button\)(?<body>[\s\S]*?)\r?\nend')
     if (-not $guard.Success) { throw "$label missing equipped skill button guard body" }
     Assert-TextNotContains $guard.Groups['body'].Value 'GetDescendants\(\)' "$label G equipped guard must not scan decorative background images"
-    Assert-Contains 'PressKey\(Key\)\s+LastUsed\[Key\]\s*=\s*os\.clock\(\)' "$label auto-skill loop must press priority key and update cooldown"
+    Assert-Contains '(?:PressKey|TriggerSkillButton)\(Key\)\s+LastUsed\[Key\]\s*=\s*os\.clock\(\)' "$label auto-skill loop must trigger priority skill and update cooldown"
 }
 
 'auto-skill-g-ok'

@@ -194,6 +194,7 @@ local Config = {
     AutoSeasonBuy = false,
     AutoForge = false,
     AutoPotion = false,
+    AutoSkillNetworkMultiplier = 3,
     AutoPotionSelected = {},
     AutoPetExpedition = false,
     AutoClaimPetExpedition = false,
@@ -219,6 +220,14 @@ local Config = {
     RejoinAttemptTimestamps = {},
     OreSellModes = CopyMap(DefaultOreSellModes)
 }
+
+AutoSkillNetworkFlow = AutoSkillNetworkFlow or {
+    Multiplier = 3,
+    ReplayDelay = 0.04,
+    CaptureUntil = 0,
+    Replaying = false
+}
+AutoSkillNetworkFlow.Remote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("PlayerActionRE")
 
 local AutoStartWorldId = Config.AutoStartWorldId
 local AutoStartDifficulty = Config.AutoStartDifficulty
@@ -464,6 +473,7 @@ local function LoadConfig()
     Config.AutoSeasonBuy = Config.AutoSeasonBuy == true
     Config.AutoForge = Config.AutoForge == true
     Config.AutoPotion = Config.AutoPotion == true
+    Config.AutoSkillNetworkMultiplier = math.floor(ClampNumber(Config.AutoSkillNetworkMultiplier, 3, 8, 3))
     Config.AutoPotionSelected = NormalizeEnabledMap(Config.AutoPotionSelected, {})
     Config.AutoPetExpedition = Config.AutoPetExpedition == true
     Config.AutoClaimPetExpedition = Config.AutoClaimPetExpedition == true
@@ -513,6 +523,7 @@ local function SaveConfig()
     Config.AutoSeasonBuy = _G.AutoSeasonBuy
     Config.AutoForge = _G.AutoForge
     Config.AutoPotion = _G.AutoPotion
+    Config.AutoSkillNetworkMultiplier = AutoSkillNetworkFlow.Multiplier
     Config.AutoPotionSelected = AutoPotion.Selected
     Config.AutoPetExpedition = _G.AutoPetExpedition
     Config.AutoClaimPetExpedition = _G.AutoClaimPetExpedition
@@ -559,6 +570,7 @@ AutoForge.AutoDeleteNonMatch = Config.AutoForgeAutoDeleteNonMatch
 AutoForge.Profiles = Config.AutoForgeProfiles
 AutoPotion.Selected = Config.AutoPotionSelected
 AutoPetExpedition.SlotOrder = Config.PetExpeditionSlotOrder
+AutoSkillNetworkFlow.Multiplier = Config.AutoSkillNetworkMultiplier
 
 -- KONTROL SCRIPT MASTER
 _G.AutoFarm = true
@@ -3662,6 +3674,7 @@ local oldCallback
 if type(setBypass) == "function" and type(getMethod) == "function" then
     oldCallback = setBypass(game, "__namecall", function(self, ...)
         local method = getMethod()
+        local argumentCount = select("#", ...)
         local args = {...}
 
         -- Hanya berjalan jika fitur di UI bernilai TRUE dan memanggil Remote ForgeRF
@@ -3673,10 +3686,30 @@ if type(setBypass) == "function" and type(getMethod) == "function" then
             end
         end
 
-        return oldCallback(self, unpack(args))
+        if method == "FireServer" and self == AutoSkillNetworkFlow.Remote and args[1] == "BulletShoot" and
+            not AutoSkillNetworkFlow.Replaying and _G.AutoFarm and _G.AutoSkill and
+            os.clock() <= AutoSkillNetworkFlow.CaptureUntil then
+            local CapturedArgs = table.clone(args)
+            CapturedArgs.n = argumentCount
+            task.spawn(function()
+                for ReplayIndex = 2, AutoSkillNetworkFlow.Multiplier do
+                    task.wait(AutoSkillNetworkFlow.ReplayDelay)
+                    AutoSkillNetworkFlow.Replaying = true
+                    local Sent = pcall(function()
+                        self:FireServer(unpack(CapturedArgs, 1, CapturedArgs.n))
+                    end)
+                    AutoSkillNetworkFlow.Replaying = false
+                    if not Sent then
+                        break
+                    end
+                end
+            end)
+        end
+
+        return oldCallback(self, unpack(args, 1, argumentCount))
     end)
 else
-    warn("[Bugon V6] Perfect Forge hook unavailable; continuing without hook")
+    warn("[Bugon V6] Perfect Forge/network burst hook unavailable; continuing without hook")
 end
 
 local function UpdateStatsLabel()
@@ -3846,6 +3879,68 @@ local SkillButtonNames = {
     R = "SkillU"
 }
 local SkillPriority = {"G", "R", "E", "Q"}
+local SkillBurstDelay = 0.04
+AutoSkillVisualFlow = AutoSkillVisualFlow or {
+    Hooks = {},
+    SuppressUntil = 0
+}
+AutoSkillVisualFlow.Methods = {
+    "ProcFX",
+    "ProcSFX",
+    "ProcCameraShake",
+    "ProcCameraShote",
+    "ProcCameraFOV",
+    "ProcFilmEffect",
+    "ProcLighting"
+}
+
+function AutoSkillVisualFlow.ShouldSuppress(Self)
+    return Self and Self.IsSelf and os.clock() <= (AutoSkillVisualFlow.SuppressUntil or 0)
+end
+
+function AutoSkillVisualFlow.Install()
+    if not hookfunction then
+        return false
+    end
+
+    local PlayerScripts = LocalPlayer:FindFirstChild("PlayerScripts")
+    local GameScripts = PlayerScripts and PlayerScripts:FindFirstChild("Game")
+    local DisplayScript = GameScripts and GameScripts:FindFirstChild("ClientSkillEffectDisplay")
+    local SkillEffectScript = DisplayScript and DisplayScript:FindFirstChild("SkillEffect")
+    if not SkillEffectScript then
+        return false
+    end
+
+    local Required, SkillEffect = pcall(require, SkillEffectScript)
+    if not Required or type(SkillEffect) ~= "table" then
+        return false
+    end
+    if AutoSkillVisualFlow.Module ~= SkillEffect then
+        AutoSkillVisualFlow.Module = SkillEffect
+        AutoSkillVisualFlow.Hooks = {}
+    end
+
+    for _, MethodName in ipairs(AutoSkillVisualFlow.Methods) do
+        if type(SkillEffect[MethodName]) == "function" and not AutoSkillVisualFlow.Hooks[MethodName] then
+            local Original
+            Original = hookfunction(SkillEffect[MethodName], function(Self, ...)
+                if AutoSkillVisualFlow.ShouldSuppress(Self) then
+                    return
+                end
+                return Original(Self, ...)
+            end)
+            AutoSkillVisualFlow.Hooks[MethodName] = Original
+        end
+    end
+    return true
+end
+
+task.spawn(function()
+    while not AutoSkillVisualFlow.Install() do
+        task.wait(1)
+    end
+end)
+
 local SkillDebug = _G.SkillDebug ~= false
 local SkillAnimationReleaseWindow = 0.2
 local WeaponSwitchCooldown = 3.1
@@ -3892,6 +3987,23 @@ local function GetSkillButton(key)
     end
     local Buttons = Skills and Skills:FindFirstChild("LocalPCSkillButtons")
     return (Buttons and Buttons:FindFirstChild(SkillName)) or (Skills and Skills:FindFirstChild(SkillName, true)) or nil
+end
+
+local function TriggerSkillButton(key)
+    -- ponytail: 8s covers current multi-stage skills; use stage-completion tracking if longer skills appear.
+    AutoSkillVisualFlow.SuppressUntil = os.clock() + 8
+    AutoSkillNetworkFlow.CaptureUntil = os.clock() + 8
+    local Button = GetSkillButton(key)
+    if Button and Button:IsA("GuiButton") and firesignal then
+        local DownOk = pcall(firesignal, Button.MouseButton1Down)
+        task.wait(0.01)
+        local UpOk = pcall(firesignal, Button.MouseButton1Up)
+        if DownOk and UpOk then
+            return "button"
+        end
+    end
+    PressKey(key)
+    return "keyboard"
 end
 
 local function IsWeaponSwitchReady()
@@ -4032,18 +4144,17 @@ task.spawn(function()
                 DebugSkill("WAIT ANIM " .. tostring(AnimationName))
             else
                 local WaitReason = nil
-                local PressedSkill = false
+                local TriggeredSkill = false
                 for _, Key in ipairs(SkillPriority) do
                     local Button = GetSkillButton(Key)
                     if IsSkillReady(Key) then
                         NoSwitchSkillsReadySince = nil
                         IsSwitchPending = false
                         DebugSkill("PRESS " .. Key .. " -> " .. SkillButtonNames[Key])
-                        PressKey(Key)
+                        TriggerSkillButton(Key)
                         LastUsed[Key] = os.clock()
-                        PressedSkill = true
-                        task.wait(0.15)
-                        break
+                        TriggeredSkill = true
+                        task.wait(SkillBurstDelay)
                     elseif not WaitReason then
                         if Button then
                             WaitReason = Key .. " OnCD=" .. tostring(Button:GetAttribute("OnCD"))
@@ -4055,7 +4166,7 @@ task.spawn(function()
                         end
                     end
                 end
-                if not PressedSkill and ShouldSwitchWeapon(CurrentTime) then
+                if not TriggeredSkill and ShouldSwitchWeapon(CurrentTime) then
                     local PreviousSwitchTs = LocalPlayer:GetAttribute("SwitchWpnLastTs")
                     local PreviousWeaponUUID = GetEquippedWeaponUUID()
                     DebugSkillNow("SWITCH C try " .. GetSwitchButtonDebugSummary() .. " " .. GetAnimationDebugSummary())
@@ -4074,7 +4185,7 @@ task.spawn(function()
                         DebugSkill("SWITCH C retry " .. SwitchReason)
                     end
                     task.wait(0.15)
-                elseif WaitReason and not PressedSkill then
+                elseif WaitReason and not TriggeredSkill then
                     DebugSkill("WAIT CD " .. WaitReason)
                 end
             end
@@ -6593,6 +6704,81 @@ UserInputService.InputEnded:Connect(function(Input)
     end
 end)
 RefreshV6Height()
+
+AutoSkillNetworkFlow.Card = Instance.new("Frame")
+AutoSkillNetworkFlow.Card.Name = "SkillNetworkBurstCard"
+AutoSkillNetworkFlow.Card.Size = UDim2.new(1, 0, 0, 62)
+AutoSkillNetworkFlow.Card.BackgroundColor3 = Theme.Surface
+AutoSkillNetworkFlow.Card.BorderSizePixel = 0
+AutoSkillNetworkFlow.Card.Parent = FarmTab
+AddCorner(AutoSkillNetworkFlow.Card, 6)
+AddStroke(AutoSkillNetworkFlow.Card)
+
+AutoSkillNetworkFlow.Title = CreateText(AutoSkillNetworkFlow.Card, "SKILL NETWORK BURST", 12)
+AutoSkillNetworkFlow.Title.Position = UDim2.fromOffset(10, 4)
+AutoSkillNetworkFlow.Title.Size = UDim2.new(1, -70, 0, 24)
+AutoSkillNetworkFlow.Value = CreateText(AutoSkillNetworkFlow.Card, "", 12, Theme.Accent,
+    Enum.TextXAlignment.Right)
+AutoSkillNetworkFlow.Value.Position = UDim2.new(1, -60, 0, 4)
+AutoSkillNetworkFlow.Value.Size = UDim2.fromOffset(50, 24)
+AutoSkillNetworkFlow.Value.Font = Enum.Font.GothamBold
+
+AutoSkillNetworkFlow.Track = Instance.new("TextButton")
+AutoSkillNetworkFlow.Track.AutoButtonColor = false
+AutoSkillNetworkFlow.Track.Text = ""
+AutoSkillNetworkFlow.Track.Position = UDim2.fromOffset(12, 39)
+AutoSkillNetworkFlow.Track.Size = UDim2.new(1, -24, 0, 6)
+AutoSkillNetworkFlow.Track.BackgroundColor3 = Theme.Disabled
+AutoSkillNetworkFlow.Track.BorderSizePixel = 0
+AutoSkillNetworkFlow.Track.Parent = AutoSkillNetworkFlow.Card
+AddCorner(AutoSkillNetworkFlow.Track, 3)
+
+AutoSkillNetworkFlow.Fill = Instance.new("Frame")
+AutoSkillNetworkFlow.Fill.BackgroundColor3 = Theme.Accent
+AutoSkillNetworkFlow.Fill.BorderSizePixel = 0
+AutoSkillNetworkFlow.Fill.Parent = AutoSkillNetworkFlow.Track
+AddCorner(AutoSkillNetworkFlow.Fill, 3)
+AutoSkillNetworkFlow.Knob = Instance.new("Frame")
+AutoSkillNetworkFlow.Knob.AnchorPoint = Vector2.new(0.5, 0.5)
+AutoSkillNetworkFlow.Knob.Size = UDim2.fromOffset(14, 14)
+AutoSkillNetworkFlow.Knob.BackgroundColor3 = Color3.new(1, 1, 1)
+AutoSkillNetworkFlow.Knob.BorderSizePixel = 0
+AutoSkillNetworkFlow.Knob.Parent = AutoSkillNetworkFlow.Track
+AddCorner(AutoSkillNetworkFlow.Knob, 7)
+
+function AutoSkillNetworkFlow.RefreshSlider()
+    local Percent = math.clamp((AutoSkillNetworkFlow.Multiplier - 3) / 5, 0, 1)
+    AutoSkillNetworkFlow.Value.Text = tostring(AutoSkillNetworkFlow.Multiplier) .. "x"
+    AutoSkillNetworkFlow.Fill.Size = UDim2.fromScale(Percent, 1)
+    AutoSkillNetworkFlow.Knob.Position = UDim2.fromScale(Percent, 0.5)
+end
+
+function AutoSkillNetworkFlow.UpdateSlider(Input)
+    local Percent = math.clamp((Input.Position.X - AutoSkillNetworkFlow.Track.AbsolutePosition.X) /
+                                   AutoSkillNetworkFlow.Track.AbsoluteSize.X, 0, 1)
+    AutoSkillNetworkFlow.Multiplier = math.floor(3 + Percent * 5 + 0.5)
+    AutoSkillNetworkFlow.RefreshSlider()
+end
+
+AutoSkillNetworkFlow.Track.InputBegan:Connect(function(Input)
+    if IsSliderInput(Input) then
+        AutoSkillNetworkFlow.Dragging = true
+        AutoSkillNetworkFlow.UpdateSlider(Input)
+    end
+end)
+UserInputService.InputChanged:Connect(function(Input)
+    if AutoSkillNetworkFlow.Dragging and
+        (Input.UserInputType == Enum.UserInputType.MouseMovement or Input.UserInputType == Enum.UserInputType.Touch) then
+        AutoSkillNetworkFlow.UpdateSlider(Input)
+    end
+end)
+UserInputService.InputEnded:Connect(function(Input)
+    if AutoSkillNetworkFlow.Dragging and IsSliderInput(Input) then
+        AutoSkillNetworkFlow.Dragging = false
+        SaveConfig()
+    end
+end)
+AutoSkillNetworkFlow.RefreshSlider()
 
 StatsLabel = Instance.new("TextLabel")
 StatsLabel.Name = "V6StatsLabel"
