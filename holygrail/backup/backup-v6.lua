@@ -50,9 +50,6 @@ local AutoForge = {
         WeaponAxeHammer = {Label = "Axe/Hammer", Category = "Weapon", OreCount = 16, Chance = 100},
         WeaponFist = {Label = "Fist", Category = "Weapon", OreCount = 18, Chance = 5},
         WeaponFistCommon = {Label = "Fist + Common Relic", Category = "Weapon", OreCount = 18, Chance = 20, RelicId = "FistRelic_1"},
-        WeaponBow = {Label = "Bow", Category = "Weapon", OreCount = 18, Chance = 5},
-        WeaponBowRelic = {Label = "Bow + Bow Relic", Category = "Weapon", OreCount = 18, Chance = 20, RelicId = "BowRelic_1"},
-        WeaponScythe = {Label = "Scythe", Category = "Weapon", OreCount = 20, Chance = 90},
         WeaponFistLuxury = {Label = "Fist + Luxury Relic", Category = "Weapon", OreCount = 18, Chance = 58, RelicId = "FistRelic_2"},
         ArmorLightHelmet = {Label = "Light Helmet", Category = "Armor", OreCount = 3, Chance = 100},
         ArmorLightArmor = {Label = "Light Armor", Category = "Armor", OreCount = 10, Chance = 80},
@@ -60,8 +57,8 @@ local AutoForge = {
         ArmorHeavyArmor = {Label = "Heavy Armor", Category = "Armor", OreCount = 22, Chance = 100}
     },
     RecipeOrder = {
-        "WeaponSword", "WeaponStaff", "WeaponAxeHammer", "WeaponFist", "WeaponFistCommon", "WeaponBow",
-        "WeaponBowRelic", "WeaponScythe", "WeaponFistLuxury", "ArmorLightHelmet", "ArmorLightArmor", "ArmorHeavyHelmet", "ArmorHeavyArmor"
+        "WeaponSword", "WeaponStaff", "WeaponAxeHammer", "WeaponFist", "WeaponFistCommon",
+        "WeaponFistLuxury", "ArmorLightHelmet", "ArmorLightArmor", "ArmorHeavyHelmet", "ArmorHeavyArmor"
     },
     RecipeId = nil,
     Composition = nil,
@@ -118,111 +115,10 @@ local AutoPotion = {
     Refresh = nil,
     Token = {Alive = true}
 }
-AutoPetExpedition = {
-    PollInterval = 1,
-    ConfirmTimeout = 5,
-    SlotCount = 4,
-    SlotOrder = {2, 3, 4},
-    Status = "OFF",
-    Refresh = nil,
-    Token = {Alive = true}
-}
-AutoPetHatch = {
-    ConfirmTimeout = 3,
-    Status = "OFF",
-    Queued = false,
-    Pending = false,
-    RetryCount = 0,
-    PendingSignature = nil,
-    Generation = 0,
-    Connected = false,
-    Refresh = nil,
-    Token = {Alive = true}
-}
-
-function AutoPetExpedition.NormalizeSlotOrder(Value, MaxSlot)
-    MaxSlot = math.max(1, math.floor(tonumber(MaxSlot) or 4))
-    local Result = {}
-    local Seen = {}
-    local function Push(SlotIndex)
-        SlotIndex = tonumber(SlotIndex)
-        if SlotIndex and SlotIndex == math.floor(SlotIndex) and SlotIndex >= 1 and SlotIndex <= MaxSlot and
-            not Seen[SlotIndex] then
-            Seen[SlotIndex] = true
-            table.insert(Result, SlotIndex)
-        end
-    end
-    if type(Value) == "string" then
-        for Token in string.gmatch(Value, "[^,]+") do
-            Push(string.match(Token, "^%s*(.-)%s*$"))
-        end
-    elseif type(Value) == "table" then
-        for _, SlotIndex in ipairs(Value) do
-            Push(SlotIndex)
-        end
-    end
-    return Result
-end
-
-function AutoPetExpedition.FormatSlotOrder(Value)
-    local Parts = {}
-    for _, SlotIndex in ipairs(Value or {}) do
-        table.insert(Parts, tostring(SlotIndex))
-    end
-    return table.concat(Parts, ",")
-end
 local AutoBuyWantedItemIds = nil
 local AutoSeasonBuyWantedItemIds = nil
 local SellMaxRarity = nil
 local OreSellModes = nil
-AutoEndlessTower = {
-    StartingRound = 0,
-    MaxPlayers = 1,
-    RetryDelay = 10,
-    StartRetryDelay = 1,
-    LastAttemptAt = -math.huge,
-    LastStartAttemptAt = -math.huge,
-    Status = "OFF",
-    Refresh = nil
-}
-AutoEndlessExtraWeapon = {
-    SelectedUUID = "",
-    Status = "AUTO",
-    ConfirmTimeout = 2,
-    RequestedUUID = nil,
-    RequestedAt = 0,
-    Attempt = 0,
-    Refresh = nil,
-    Connected = false
-}
-AutoEndlessCard = AutoEndlessCard or {
-    Enabled = false,
-    UnlockPaid = false,
-    MinGoldReserve = 0,
-    Status = "OFF",
-    Generation = 0,
-    LastSignature = nil,
-    Pending = false,
-    WaitingUnlock = false,
-    Connection = nil,
-    Keywords = {
-        {"critical damage", 120}, {"crit damage", 120}, {"critical rate", 115}, {"crit rate", 115},
-        {"critical chance", 115}, {"skill damage", 110}, {"weapon damage", 105}, {"attack damage", 100},
-        {"damage", 90}, {"dmg", 90}, {"attack speed", 85}, {"attack", 80}, {"atk", 80},
-        {"penetration", 75}, {"armor break", 75}, {"fire damage", 70}, {"ice damage", 70},
-        {"lightning damage", 70}, {"poison damage", 70}, {"bleed damage", 70}
-    },
-    DefensivePatterns = {"damage reduction", "damage taken", "defense", "health", "shield", "resistance", "resist"}
-}
-
-function AutoEndlessTower.NormalizeStartingRound(Value)
-    Value = math.floor(tonumber(Value) or 0)
-    if Value <= 0 then
-        return 0
-    end
-    Value = math.clamp(Value, 1, 196)
-    return math.floor((Value - 1) / 5) * 5 + 1
-end
 
 local Config = {
     TinggiMelayang = 5,
@@ -235,12 +131,7 @@ local Config = {
     AutoSeasonBuy = false,
     AutoForge = false,
     AutoPotion = false,
-    AutoSkillNetworkMultiplier = 3,
     AutoPotionSelected = {},
-    AutoPetExpedition = false,
-    AutoClaimPetExpedition = false,
-    AutoPetHatch = false,
-    PetExpeditionSlotOrder = {2, 3, 4},
     AutoBuyWantedItemIds = CopyMap(DefaultAutoBuyWantedItemIds),
     AutoSeasonBuyWantedItemIds = CopyMap(DefaultAutoSeasonBuyWantedItemIds),
     AutoForgeRecipeId = "WeaponSword",
@@ -252,28 +143,12 @@ local Config = {
     SellMaxRarity = 5,
     AutoStartWorldId = "World3",
     AutoStartDifficulty = 10,
-    AutoJoinEndlessTower = false,
-    EndlessTowerStartingRound = 0,
-    EndlessTowerMaxPlayers = 1,
-    EndlessExtraWeaponUUID = "",
-    AutoPickEndlessOffensiveCard = false,
-    AutoUnlockEndlessPaidCard = false,
-    EndlessCardMinGoldReserve = 0,
     AutoRejoin = true,
     LobbyPlaceId = 0,
     RecoveryPending = false,
-    DeathRestartPending = false,
     RejoinAttemptTimestamps = {},
     OreSellModes = CopyMap(DefaultOreSellModes)
 }
-
-AutoSkillNetworkFlow = AutoSkillNetworkFlow or {
-    Multiplier = 3,
-    ReplayDelay = 0.04,
-    CaptureUntil = 0,
-    Replaying = false
-}
-AutoSkillNetworkFlow.Remote = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("PlayerActionRE")
 
 local AutoStartWorldId = Config.AutoStartWorldId
 local AutoStartDifficulty = Config.AutoStartDifficulty
@@ -519,12 +394,7 @@ local function LoadConfig()
     Config.AutoSeasonBuy = Config.AutoSeasonBuy == true
     Config.AutoForge = Config.AutoForge == true
     Config.AutoPotion = Config.AutoPotion == true
-    Config.AutoSkillNetworkMultiplier = math.floor(ClampNumber(Config.AutoSkillNetworkMultiplier, 3, 8, 3))
     Config.AutoPotionSelected = NormalizeEnabledMap(Config.AutoPotionSelected, {})
-    Config.AutoPetExpedition = Config.AutoPetExpedition == true
-    Config.AutoClaimPetExpedition = Config.AutoClaimPetExpedition == true
-    Config.AutoPetHatch = Config.AutoPetHatch == true
-    Config.PetExpeditionSlotOrder = AutoPetExpedition.NormalizeSlotOrder(Config.PetExpeditionSlotOrder, 99)
     Config.AutoBuyWantedItemIds = NormalizeEnabledMap(Config.AutoBuyWantedItemIds, DefaultAutoBuyWantedItemIds)
     Config.AutoSeasonBuyWantedItemIds = NormalizeEnabledMap(Config.AutoSeasonBuyWantedItemIds,
         DefaultAutoSeasonBuyWantedItemIds)
@@ -537,18 +407,9 @@ local function LoadConfig()
     Config.SellMaxRarity = math.floor(ClampNumber(Config.SellMaxRarity, 0, 10, 5))
     Config.AutoStartWorldId = type(Config.AutoStartWorldId) == "string" and Config.AutoStartWorldId or "World3"
     Config.AutoStartDifficulty = math.max(1, math.floor(tonumber(Config.AutoStartDifficulty) or 10))
-    Config.AutoJoinEndlessTower = Config.AutoJoinEndlessTower == true
-    Config.EndlessTowerStartingRound = AutoEndlessTower.NormalizeStartingRound(Config.EndlessTowerStartingRound)
-    Config.EndlessTowerMaxPlayers = math.floor(ClampNumber(Config.EndlessTowerMaxPlayers, 1, 4, 1))
-    Config.EndlessExtraWeaponUUID = type(Config.EndlessExtraWeaponUUID) == "string" and
-                                            Config.EndlessExtraWeaponUUID or ""
-    Config.AutoPickEndlessOffensiveCard = Config.AutoPickEndlessOffensiveCard == true
-    Config.AutoUnlockEndlessPaidCard = Config.AutoUnlockEndlessPaidCard == true
-    Config.EndlessCardMinGoldReserve = math.max(0, math.floor(tonumber(Config.EndlessCardMinGoldReserve) or 0))
     Config.AutoRejoin = Config.AutoRejoin ~= false
     Config.LobbyPlaceId = math.max(0, math.floor(tonumber(Config.LobbyPlaceId) or 0))
     Config.RecoveryPending = Config.RecoveryPending == true
-    Config.DeathRestartPending = Config.DeathRestartPending == true
     if type(Config.RejoinAttemptTimestamps) ~= "table" then
         Config.RejoinAttemptTimestamps = {}
     else
@@ -575,12 +436,7 @@ local function SaveConfig()
     Config.AutoSeasonBuy = _G.AutoSeasonBuy
     Config.AutoForge = _G.AutoForge
     Config.AutoPotion = _G.AutoPotion
-    Config.AutoSkillNetworkMultiplier = AutoSkillNetworkFlow.Multiplier
     Config.AutoPotionSelected = AutoPotion.Selected
-    Config.AutoPetExpedition = _G.AutoPetExpedition
-    Config.AutoClaimPetExpedition = _G.AutoClaimPetExpedition
-    Config.AutoPetHatch = _G.AutoPetHatch
-    Config.PetExpeditionSlotOrder = AutoPetExpedition.SlotOrder
     Config.AutoBuyWantedItemIds = AutoBuyWantedItemIds or Config.AutoBuyWantedItemIds
     Config.AutoSeasonBuyWantedItemIds = AutoSeasonBuyWantedItemIds or Config.AutoSeasonBuyWantedItemIds
     Config.AutoForgeRecipeId = AutoForge.RecipeId or Config.AutoForgeRecipeId
@@ -592,13 +448,6 @@ local function SaveConfig()
     Config.SellMaxRarity = SellMaxRarity or Config.SellMaxRarity
     Config.AutoStartWorldId = AutoStartWorldId or Config.AutoStartWorldId
     Config.AutoStartDifficulty = AutoStartDifficulty or Config.AutoStartDifficulty
-    Config.AutoJoinEndlessTower = _G.AutoJoinEndlessTower
-    Config.EndlessTowerStartingRound = AutoEndlessTower.StartingRound
-    Config.EndlessTowerMaxPlayers = AutoEndlessTower.MaxPlayers
-    Config.EndlessExtraWeaponUUID = AutoEndlessExtraWeapon.SelectedUUID
-    Config.AutoPickEndlessOffensiveCard = AutoEndlessCard.Enabled
-    Config.AutoUnlockEndlessPaidCard = AutoEndlessCard.UnlockPaid
-    Config.EndlessCardMinGoldReserve = AutoEndlessCard.MinGoldReserve
     Config.AutoRejoin = _G.AutoRejoin
     Config.OreSellModes = OreSellModes or Config.OreSellModes
     local Berhasil, HasilJSON = pcall(function()
@@ -617,13 +466,6 @@ end
 LoadConfig()
 AutoStartWorldId = Config.AutoStartWorldId
 AutoStartDifficulty = Config.AutoStartDifficulty
-AutoEndlessTower.StartingRound = Config.EndlessTowerStartingRound
-AutoEndlessTower.MaxPlayers = Config.EndlessTowerMaxPlayers
-AutoEndlessExtraWeapon.SelectedUUID = Config.EndlessExtraWeaponUUID
-AutoEndlessCard.Enabled = Config.AutoPickEndlessOffensiveCard
-AutoEndlessCard.UnlockPaid = Config.AutoUnlockEndlessPaidCard
-AutoEndlessCard.MinGoldReserve = Config.EndlessCardMinGoldReserve
-AutoEndlessCard.Status = AutoEndlessCard.Enabled and "WAIT CARDS" or "OFF"
 AutoForge.RecipeId = Config.AutoForgeRecipeId
 AutoForge.Composition = Config.AutoForgeOreComposition
 AutoForge.RequestedCrafts = Config.AutoForgeRequestedCrafts
@@ -631,8 +473,6 @@ AutoForge.TargetMode = Config.AutoForgeTargetMode
 AutoForge.AutoDeleteNonMatch = Config.AutoForgeAutoDeleteNonMatch
 AutoForge.Profiles = Config.AutoForgeProfiles
 AutoPotion.Selected = Config.AutoPotionSelected
-AutoPetExpedition.SlotOrder = Config.PetExpeditionSlotOrder
-AutoSkillNetworkFlow.Multiplier = Config.AutoSkillNetworkMultiplier
 
 -- KONTROL SCRIPT MASTER
 _G.AutoFarm = true
@@ -652,53 +492,12 @@ _G.AutoSell = Config.AutoSell
 _G.AutoSeasonBuy = Config.AutoSeasonBuy
 _G.AutoForge = Config.AutoForge
 _G.AutoPotion = Config.AutoPotion
-_G.AutoPetExpedition = Config.AutoPetExpedition
-_G.AutoClaimPetExpedition = Config.AutoClaimPetExpedition
-_G.AutoPetHatch = Config.AutoPetHatch
-_G.AutoJoinEndlessTower = Config.AutoJoinEndlessTower
 _G.AutoRejoin = Config.AutoRejoin
-
-task.spawn(function()
-    local StartedAt = os.clock()
-    while _G.AutoRejoin and os.clock() - StartedAt < 150 do
-        local Character = LocalPlayer.Character
-        if Character and Character:FindFirstChild("HumanoidRootPart") then
-            return
-        end
-        task.wait(5)
-    end
-    if not _G.AutoRejoin then
-        return
-    end
-    local Character = LocalPlayer.Character
-    if Character and Character:FindFirstChild("HumanoidRootPart") then
-        return
-    end
-    local PlaceId = Config.LobbyPlaceId > 0 and Config.LobbyPlaceId or game.PlaceId
-    if PlaceId <= 0 then
-        warn("[Bugon V6] character load timeout; no place id")
-        return
-    end
-    warn("[Bugon V6] character load timeout; rejoining " .. tostring(PlaceId))
-    pcall(function()
-        TeleportService:Teleport(PlaceId, LocalPlayer)
-    end)
-end)
 
 if _G.BugonAutoPotionRuntime and _G.BugonAutoPotionRuntime.Shutdown then
     pcall(_G.BugonAutoPotionRuntime.Shutdown)
 end
 _G.BugonAutoPotionRuntime = AutoPotion
-
-if _G.BugonAutoPetExpeditionRuntime and _G.BugonAutoPetExpeditionRuntime.Token then
-    _G.BugonAutoPetExpeditionRuntime.Token.Alive = false
-end
-_G.BugonAutoPetExpeditionRuntime = AutoPetExpedition
-
-if _G.BugonAutoPetHatchRuntime and _G.BugonAutoPetHatchRuntime.Token then
-    _G.BugonAutoPetHatchRuntime.Token.Alive = false
-end
-_G.BugonAutoPetHatchRuntime = AutoPetHatch
 
 local SudutPutar = 0
 local Target = nil
@@ -761,43 +560,6 @@ local AutoStartRetryDelay = 3.0
 local AutoStartMaxPlayers = 1
 local AutoStartPending = false
 local IsInLobby = nil
-AutoLobbyStartGate = {
-    GraceDelay = 8,
-    ReadySince = nil
-}
-
-function AutoLobbyStartGate.IsReady()
-    if not IsInLobby or not IsInLobby() then
-        AutoLobbyStartGate.ReadySince = nil
-        return false
-    end
-
-    local Character = LocalPlayer.Character
-    if not Character or not Character:FindFirstChild("HumanoidRootPart") then
-        AutoLobbyStartGate.ReadySince = nil
-        return false
-    end
-
-    AutoLobbyStartGate.ReadySince = AutoLobbyStartGate.ReadySince or os.clock()
-    return os.clock() - AutoLobbyStartGate.ReadySince >= AutoLobbyStartGate.GraceDelay
-end
-
-AutoGiveupFlow = {
-    ExitRetryDelay = 1.5,
-    ReturnRetryDelay = 3.0,
-    LastExitRequestAt = -math.huge,
-    LastReturnRequestAt = -math.huge,
-    AwaitingSettlement = false,
-    ExitButtonTried = false,
-    Remote = nil
-}
-
-LocalPlayer.CharacterAdded:Connect(function()
-    AutoGiveupFlow.LastExitRequestAt = -math.huge
-    AutoGiveupFlow.LastReturnRequestAt = -math.huge
-    AutoGiveupFlow.AwaitingSettlement = false
-    AutoGiveupFlow.ExitButtonTried = false
-end)
 
 if _G.BugonAutoForgeToken then
     _G.BugonAutoForgeToken.Alive = false
@@ -822,7 +584,6 @@ local RejoinWatchdog = {
     LastFallbackScanAt = -math.huge,
     SignalsBound = false,
     PromptGuiBound = nil,
-    PlayerGuiBound = nil,
     PendingSince = Config.RecoveryPending and os.clock() or nil,
     LogFile = "Bugon-teleport-log.txt",
     Token = {
@@ -917,20 +678,16 @@ function RejoinWatchdog.FindReconnectButton()
     end
     local RobloxPromptGui = CoreGui:FindFirstChild("RobloxPromptGui")
     local PromptOverlay = RobloxPromptGui and RobloxPromptGui:FindFirstChild("promptOverlay")
-    return Scan(PromptOverlay) or Scan(RobloxPromptGui)
+    return Scan(PromptOverlay)
 end
 
 function RejoinWatchdog.TrackGuiObject(Object)
     if not _G.AutoRejoin or not Object then
         return
     end
-    if Object:IsA("TextLabel") or Object:IsA("TextButton") or Object:IsA("TextBox") then
-        local Text = string.lower(tostring(Object.Text))
-        if string.find(Text, "teleporting", 1, true) then
-            RejoinWatchdog.TeleportText = Object
-        elseif string.find(Text, "disconnected", 1, true) or string.find(Text, "lost connection", 1, true) then
-            RejoinWatchdog.BeginRecovery("DISCONNECT_TEXT")
-        end
+    if (Object:IsA("TextLabel") or Object:IsA("TextButton") or Object:IsA("TextBox")) and
+        string.find(string.lower(tostring(Object.Text)), "teleporting", 1, true) then
+        RejoinWatchdog.TeleportText = Object
     end
     local ReconnectButton = nil
     if Object:IsA("GuiButton") then
@@ -983,26 +740,17 @@ function RejoinWatchdog.BindPromptGui(RobloxPromptGui)
     end)
 end
 
-function RejoinWatchdog.BindPlayerGui(PlayerGui)
-    if not PlayerGui or RejoinWatchdog.PlayerGuiBound == PlayerGui then
-        return
-    end
-    RejoinWatchdog.PlayerGuiBound = PlayerGui
-    for _, Object in ipairs(PlayerGui:GetDescendants()) do
-        RejoinWatchdog.TrackGuiObject(Object)
-    end
-    PlayerGui.DescendantAdded:Connect(function(Object)
-        if RejoinWatchdog.Token.Alive then
-            RejoinWatchdog.TrackGuiObject(Object)
-        end
-    end)
-end
-
 function RejoinWatchdog.BindGuiSignals()
     if RejoinWatchdog.SignalsBound then
         return
     end
     RejoinWatchdog.SignalsBound = true
+    local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+    PlayerGui.DescendantAdded:Connect(function(Object)
+        if RejoinWatchdog.Token.Alive then
+            RejoinWatchdog.TrackGuiObject(Object)
+        end
+    end)
     local Success, CoreGui = pcall(game.GetService, game, "CoreGui")
     if Success then
         RejoinWatchdog.BindPromptGui(CoreGui:FindFirstChild("RobloxPromptGui"))
@@ -1012,48 +760,20 @@ function RejoinWatchdog.BindGuiSignals()
             end
         end)
     end
-    RejoinWatchdog.BindPlayerGui(LocalPlayer:FindFirstChild("PlayerGui"))
-    LocalPlayer.ChildAdded:Connect(function(Child)
-        if RejoinWatchdog.Token.Alive and Child.Name == "PlayerGui" then
-            RejoinWatchdog.BindPlayerGui(Child)
-        end
-    end)
     RejoinWatchdog.RefreshCachedTargets(true)
-end
-
-function RejoinWatchdog.TryFireGuiButtonSignals(Button)
-    if not firesignal or not Button:IsA("GuiButton") then
-        return false
-    end
-    local Fired = false
-    for _, Signal in ipairs({
-        Button.MouseButton1Down,
-        Button.MouseButton1Click,
-        Button.Activated
-    }) do
-        local Success = pcall(firesignal, Signal)
-        Fired = Fired or Success
-    end
-    return Fired
 end
 
 function RejoinWatchdog.ClickButton(Button)
     if not Button or not RejoinWatchdog.IsGuiVisible(Button) then
         return false
     end
-    if RejoinWatchdog.TryFireGuiButtonSignals(Button) then
-        return true
-    end
     local Position = Button.AbsolutePosition + (Button.AbsoluteSize / 2)
     VirtualInputManager:SendMouseButtonEvent(Position.X, Position.Y, 0, true, game, 0)
     task.wait(0.05)
     VirtualInputManager:SendMouseButtonEvent(Position.X, Position.Y, 0, false, game, 0)
-    pcall(function()
-        GuiService.SelectedObject = Button
-        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
-        task.wait(0.05)
-        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
-    end)
+    if firesignal then
+        pcall(firesignal, Button.Activated)
+    end
     return true
 end
 
@@ -1074,11 +794,8 @@ function RejoinWatchdog.MarkHardStuck(Reason)
     RejoinWatchdog.RecoveryActive = false
     RejoinWatchdog.NextAttemptAt = nil
     RejoinWatchdog.Finalizing = false
-    Config.RecoveryPending = false
-    RejoinWatchdog.PendingSince = nil
     RejoinWatchdog.Status = "HARD STUCK"
     RejoinWatchdog.Log("HARD_STUCK", Reason)
-    SaveConfig()
 end
 
 function RejoinWatchdog.ScheduleNextAttempt()
@@ -1154,7 +871,7 @@ function RejoinWatchdog.AttemptLobbyTeleport()
 end
 
 function RejoinWatchdog.BlocksAutomation()
-    return _G.AutoRejoin and RejoinWatchdog.RecoveryActive
+    return _G.AutoRejoin and (RejoinWatchdog.RecoveryActive or RejoinWatchdog.HardStuck)
 end
 
 function RejoinWatchdog.Tick()
@@ -1198,13 +915,9 @@ function RejoinWatchdog.Tick()
         end
     end
 
-    if Config.RecoveryPending and not TeleportText and not ReconnectButton and not IsInLobby() and
-        not RejoinWatchdog.RecoveryActive and CurrentTime - (RejoinWatchdog.PendingSince or CurrentTime) >= 10 then
-        Config.RecoveryPending = false
-        RejoinWatchdog.PendingSince = nil
-        RejoinWatchdog.Status = "IDLE"
-        RejoinWatchdog.Log("RECOVERY_PENDING_CLEARED_ACTIVE_SESSION")
-        SaveConfig()
+    if Config.RecoveryPending and not IsInLobby() and not RejoinWatchdog.RecoveryActive and
+        CurrentTime - (RejoinWatchdog.PendingSince or CurrentTime) >= 10 then
+        RejoinWatchdog.BeginRecovery("PENDING_NOT_LOBBY")
     end
 
     if RejoinWatchdog.RecoveryActive and RejoinWatchdog.NextAttemptAt and CurrentTime >= RejoinWatchdog.NextAttemptAt then
@@ -1441,323 +1154,10 @@ local function GetFrameworkModule()
     return FrameworkModule
 end
 
-function AutoEndlessExtraWeapon.GetModules()
-    local Framework = GetFrameworkModule()
-    local EquipmentRE = ReplicatedStorage:WaitForChild("Framework"):WaitForChild("Gameplay"):
-                            WaitForChild("EquipmentSystem"):WaitForChild("EquipmentRE")
-    return Framework.Modules.DataUtil, Framework.Modules.EquipmentUtil, Framework.Modules.TimeLimitUtil,
-        Framework.Modules.TranslationUtil, EquipmentRE
-end
-
-function AutoEndlessExtraWeapon.SetStatus(Status)
-    if AutoEndlessExtraWeapon.Status == Status then
-        return
-    end
-    AutoEndlessExtraWeapon.Status = Status
-    if AutoEndlessTower.Refresh then
-        pcall(AutoEndlessTower.Refresh)
-    end
-end
-
-function AutoEndlessExtraWeapon.GetOptions()
-    local DataUtil, EquipmentUtil, TimeLimitUtil, TranslationUtil = AutoEndlessExtraWeapon.GetModules()
-    local Owned = DataUtil:GetValue(LocalPlayer, {"Equipment", "Owned"}) or {}
-    local EquipSlots = DataUtil:GetValue(LocalPlayer, {"Equipment", "EquipSlots"}) or {}
-    local Options = {}
-
-    for UUID, Item in pairs(Owned) do
-        if type(Item) == "table" and Item.Type == "Weapon" and UUID ~= EquipSlots.Weapon and
-            UUID ~= EquipSlots.Weapon2 and not TimeLimitUtil:IsTimeLimited(Item) then
-            local Definition = EquipmentUtil:GetDef(Item.ID)
-            if Definition then
-                local Damage = tonumber(EquipmentUtil:GetDmgOrHpByInfo(LocalPlayer, Item, Definition)) or 0
-                local DisplayName = tostring(Definition.ID or Item.ID or UUID)
-                local TranslationKey = "K_" .. string.upper(tostring(Definition.ID or Item.ID or ""))
-                local Success, Translated = pcall(TranslationUtil.TranslateByKey, TranslationUtil, TranslationKey)
-                if Success and type(Translated) == "string" and Translated ~= "" then
-                    DisplayName = Translated
-                end
-                local DisplayedFortify = Item.Fortify and Item.Fortify - 1 or 0
-                local FortifySuffix = DisplayedFortify > 0 and string.format(" (+%d)", DisplayedFortify) or ""
-                table.insert(Options, {
-                    UUID = UUID,
-                    Label = DisplayName .. FortifySuffix .. " | DMG " .. tostring(Damage),
-                    Damage = Damage,
-                    Rarity = tonumber(EquipmentUtil:GetOreRarity(Item.MaxOre)) or 0,
-                    Sort = tonumber(Definition.Sort) or math.huge
-                })
-            end
-        end
-    end
-
-    table.sort(Options, function(Left, Right)
-        if Left.Damage ~= Right.Damage then
-            return Left.Damage > Right.Damage
-        elseif Left.Rarity ~= Right.Rarity then
-            return Left.Rarity > Right.Rarity
-        elseif Left.Sort ~= Right.Sort then
-            return Left.Sort < Right.Sort
-        end
-        return tostring(Left.UUID) < tostring(Right.UUID)
-    end)
-    return Options
-end
-
-function AutoEndlessExtraWeapon.ResolveSelection()
-    local Options = AutoEndlessExtraWeapon.GetOptions()
-    if AutoEndlessExtraWeapon.SelectedUUID ~= "" then
-        for _, Option in ipairs(Options) do
-            if Option.UUID == AutoEndlessExtraWeapon.SelectedUUID then
-                return Option, false, Options
-            end
-        end
-    end
-    return Options[1], AutoEndlessExtraWeapon.SelectedUUID ~= "", Options
-end
-
-function AutoEndlessExtraWeapon.RequestEquip(UUID)
-    if not UUID or LocalPlayer:GetAttribute("ExtraWeaponUUID") == UUID then
-        return UUID ~= nil
-    end
-    local _, _, _, _, EquipmentRE = AutoEndlessExtraWeapon.GetModules()
-    EquipmentRE:FireServer("RequestSetExtraWeapon", UUID)
-    return false
-end
-
-function AutoEndlessExtraWeapon.ResetRequest()
-    AutoEndlessExtraWeapon.RequestedUUID = nil
-    AutoEndlessExtraWeapon.RequestedAt = 0
-    AutoEndlessExtraWeapon.Attempt = 0
-end
-
-function AutoEndlessExtraWeapon.Connect()
-    if AutoEndlessExtraWeapon.Connected then
-        return
-    end
-    AutoEndlessExtraWeapon.Connected = true
-    local DataUtil = AutoEndlessExtraWeapon.GetModules()
-    local function Refresh()
-        if AutoEndlessExtraWeapon.Refresh then
-            pcall(AutoEndlessExtraWeapon.Refresh)
-        end
-    end
-    DataUtil:ListenFor(LocalPlayer, {"Equipment", "Owned"}, Refresh)
-    DataUtil:ListenFor(LocalPlayer, {"Equipment", "EquipSlots"}, Refresh)
-end
-
-function AutoEndlessCard.SetStatus(Status)
-    AutoEndlessCard.Status = Status
-    if AutoEndlessTower.Refresh then
-        pcall(AutoEndlessTower.Refresh)
-    end
-end
-
-function AutoEndlessCard.GetModules()
-    local Modules = GetFrameworkModule().Modules
-    local WorldBonusCardUtil = Modules.WorldBonusCardUtil
-    return WorldBonusCardUtil, Modules.CurrencyUtil, Modules.TranslationUtil, WorldBonusCardUtil.RemoteEvent
-end
-
-function AutoEndlessCard.GetText(Card, CardInfo, TranslationUtil)
-    local Parts = {tostring(Card.ID or ""), tostring(CardInfo.Name or ""), tostring(CardInfo.Desc or "")}
-    for _, Key in ipairs({CardInfo.Name, CardInfo.Desc}) do
-        if Key then
-            local Success, Text = pcall(TranslationUtil.TranslateByKey, TranslationUtil, Key)
-            if Success and Text then
-                table.insert(Parts, tostring(Text))
-            end
-        end
-    end
-    return string.lower(table.concat(Parts, " "))
-end
-
-function AutoEndlessCard.ScoreText(Text)
-    for _, Pattern in ipairs(AutoEndlessCard.DefensivePatterns) do
-        if string.find(Text, Pattern, 1, true) then
-            return 0
-        end
-    end
-    local Score = 0
-    for _, Entry in ipairs(AutoEndlessCard.Keywords) do
-        if string.find(Text, Entry[1], 1, true) then
-            Score = math.max(Score, Entry[2])
-        end
-    end
-    return Score
-end
-
-function AutoEndlessCard.BuildSignature(Cards)
-    local Parts = {}
-    for Index, Card in ipairs(Cards or {}) do
-        table.insert(Parts, table.concat({Index, tostring(Card.ID), Card.Paid and "1" or "0", tostring(Card.Price or 0)}, ":"))
-    end
-    return table.concat(Parts, "|")
-end
-
-function AutoEndlessCard.IsBetter(Left, Right)
-    if not Right then
-        return true
-    end
-    if Left.Offensive ~= Right.Offensive then
-        return Left.Offensive
-    end
-    if Left.Rarity ~= Right.Rarity then
-        return Left.Rarity > Right.Rarity
-    end
-    if Left.Score ~= Right.Score then
-        return Left.Score > Right.Score
-    end
-    if Left.Paid ~= Right.Paid then
-        return not Left.Paid
-    end
-    return Left.Index < Right.Index
-end
-
-function AutoEndlessCard.FindBest(Cards)
-    local WorldBonusCardUtil, CurrencyUtil, TranslationUtil = AutoEndlessCard.GetModules()
-    local CurrencyId = CurrencyUtil.CurrencyIds.Currency1
-    local Best = nil
-    local BestFree = nil
-    for Index, Card in ipairs(Cards or {}) do
-        local CardInfo = type(Card) == "table" and Card.ID and WorldBonusCardUtil:GetCardInfo(Card.ID) or nil
-        if CardInfo then
-            local Candidate = {
-                Index = Index,
-                Card = Card,
-                Paid = Card.Paid == true,
-                Price = math.max(0, math.floor(tonumber(Card.Price) or 0)),
-                Rarity = tonumber(WorldBonusCardUtil:GetCardRarity(CardInfo)) or 0
-            }
-            Candidate.Score = AutoEndlessCard.ScoreText(AutoEndlessCard.GetText(Card, CardInfo, TranslationUtil))
-            Candidate.Offensive = Candidate.Score > 0
-            if not Candidate.Paid and AutoEndlessCard.IsBetter(Candidate, BestFree) then
-                BestFree = Candidate
-            end
-            local Eligible = not Candidate.Paid
-            if Candidate.Paid and AutoEndlessCard.UnlockPaid then
-                Eligible = CurrencyUtil:Has(LocalPlayer, CurrencyId,
-                    Candidate.Price + AutoEndlessCard.MinGoldReserve)
-            end
-            if Eligible and AutoEndlessCard.IsBetter(Candidate, Best) then
-                Best = Candidate
-            end
-        end
-    end
-    return Best, BestFree
-end
-
-function AutoEndlessCard.Select(RemoteEvent, Candidate)
-    AutoEndlessCard.Pending = true
-    AutoEndlessCard.WaitingUnlock = false
-    AutoEndlessCard.SetStatus("SELECT " .. tostring(Candidate.Index))
-    RemoteEvent:FireServer("Select", Candidate.Index)
-end
-
-function AutoEndlessCard.HandleCards(Cards)
-    if not AutoEndlessCard.Enabled then
-        AutoEndlessCard.SetStatus("OFF")
-        return
-    end
-    local CurrentWorld = workspace:FindFirstChild("World")
-    if not CurrentWorld or not CurrentWorld:FindFirstChild("Start") or type(Cards) ~= "table" then
-        AutoEndlessCard.SetStatus("WAIT ENDLESS TOWER")
-        return
-    end
-
-    local Signature = AutoEndlessCard.BuildSignature(Cards)
-    if Signature == AutoEndlessCard.LastSignature and AutoEndlessCard.Pending then
-        return
-    end
-    AutoEndlessCard.Generation = AutoEndlessCard.Generation + 1
-    local Generation = AutoEndlessCard.Generation
-    AutoEndlessCard.LastSignature = Signature
-    local Candidate, BestFree = AutoEndlessCard.FindBest(Cards)
-    if not Candidate then
-        AutoEndlessCard.Pending = false
-        AutoEndlessCard.SetStatus("NO AFFORDABLE CARD")
-        return
-    end
-
-    local _, _, _, RemoteEvent = AutoEndlessCard.GetModules()
-    if Candidate.Paid then
-        AutoEndlessCard.Pending = true
-        AutoEndlessCard.WaitingUnlock = true
-        AutoEndlessCard.SetStatus("UNLOCK " .. tostring(Candidate.Index) .. " · " .. tostring(Candidate.Price) .. " GOLD")
-        RemoteEvent:FireServer("Unlock", Candidate.Index)
-        task.delay(3, function()
-            if AutoEndlessCard.Generation ~= Generation or not AutoEndlessCard.WaitingUnlock then
-                return
-            end
-            AutoEndlessCard.WaitingUnlock = false
-            if BestFree then
-                AutoEndlessCard.Select(RemoteEvent, BestFree)
-            else
-                AutoEndlessCard.Pending = false
-                AutoEndlessCard.SetStatus("UNLOCK TIMEOUT")
-            end
-        end)
-        return
-    end
-    AutoEndlessCard.Select(RemoteEvent, Candidate)
-end
-
-function AutoEndlessCard.Connect()
-    if AutoEndlessCard.Connection then
-        AutoEndlessCard.Connection:Disconnect()
-    end
-    local _, _, _, RemoteEvent = AutoEndlessCard.GetModules()
-    AutoEndlessCard.Connection = RemoteEvent.OnClientEvent:Connect(function(Action, ...)
-        if Action == "ShowCards" then
-            AutoEndlessCard.HandleCards((...))
-        elseif Action == "SelectResult" then
-            local Success, Index = ...
-            AutoEndlessCard.Generation = AutoEndlessCard.Generation + 1
-            AutoEndlessCard.Pending = false
-            AutoEndlessCard.WaitingUnlock = false
-            AutoEndlessCard.LastSignature = nil
-            AutoEndlessCard.SetStatus(Success and ("SELECTED " .. tostring(Index or 1)) or "SELECT FAILED")
-        end
-    end)
-end
-
-task.spawn(function()
-    local Success, ErrorMessage = pcall(AutoEndlessCard.Connect)
-    if not Success then
-        AutoEndlessCard.SetStatus("ERROR: " .. tostring(ErrorMessage))
-    end
-end)
-
-function AutoEndlessTower.GetHighestStartingRound()
-    local Framework = GetFrameworkModule()
-    local WorldUtil = Framework.Modules.WorldUtil
-    local SeasonUtil = Framework.Modules.SeasonUtil
-    local MaxRound = WorldUtil:GetWorldRecords(LocalPlayer, "Endless1", 1, "MaxRound", SeasonUtil:GetCurrentSeason())
-    MaxRound = math.max(0, math.floor(tonumber(MaxRound) or 0))
-    return math.clamp(math.floor(MaxRound / 5) * 5 + 1, 1, 196), MaxRound
-end
-
-function AutoEndlessTower.ResolveStartingRound()
-    local HighestStartingRound, MaxRound = AutoEndlessTower.GetHighestStartingRound()
-    if AutoEndlessTower.StartingRound == 0 then
-        return HighestStartingRound, MaxRound
-    end
-    return math.min(AutoEndlessTower.StartingRound, HighestStartingRound), MaxRound
-end
-
 local function GetForgeRemoteFunction()
     if not ForgeRemoteFunction then
-        local FrameworkRoot = ReplicatedStorage:WaitForChild("Framework")
-        local Gameplay = FrameworkRoot:FindFirstChild("Gameplay")
-        local EquipmentSystem = Gameplay and Gameplay:FindFirstChild("EquipmentSystem")
-        ForgeRemoteFunction = EquipmentSystem and EquipmentSystem:FindFirstChild("ForgeRF")
-        if not ForgeRemoteFunction then
-            local Features = FrameworkRoot:FindFirstChild("Features")
-            local ForgeSystem = Features and Features:FindFirstChild("ForgeSystem")
-            ForgeRemoteFunction = ForgeSystem and ForgeSystem:FindFirstChild("ForgeRF")
-        end
-        if not ForgeRemoteFunction then
-            error("ForgeRF unavailable")
-        end
+        ForgeRemoteFunction = ReplicatedStorage:WaitForChild("Framework"):WaitForChild("Features"):WaitForChild(
+            "ForgeSystem"):WaitForChild("ForgeRF")
     end
     return ForgeRemoteFunction
 end
@@ -1791,373 +1191,6 @@ local function GetGameEnum()
     end
     return GameEnumModule
 end
-
-function AutoPetExpedition.SetStatus(Status)
-    if AutoPetExpedition.Status ~= Status then
-        AutoPetExpedition.Status = Status
-        if AutoPetExpedition.Refresh then
-            pcall(AutoPetExpedition.Refresh)
-        end
-    end
-end
-
-function AutoPetExpedition.GetModules()
-    local Modules = GetFrameworkModule().Modules
-    local PetsExpeditionUtil = Modules.PetsExpeditionUtil
-    local PetsUtil = Modules.PetsUtil
-    local PetsAffinityUtil = Modules.PetsAffinityUtil
-    AutoPetExpedition.SlotCount = math.max(1, math.floor(tonumber(PetsExpeditionUtil.Config.SlotCount) or 4))
-    AutoPetExpedition.SlotOrder = AutoPetExpedition.NormalizeSlotOrder(AutoPetExpedition.SlotOrder,
-        AutoPetExpedition.SlotCount)
-    return PetsExpeditionUtil, PetsUtil, PetsAffinityUtil
-end
-
-function AutoPetExpedition.GetRemaining(PetsExpeditionUtil)
-    local Used = PetsExpeditionUtil:_GetEffectiveDailyCount(LocalPlayer)
-    local Limit = math.max(0, math.floor(tonumber(PetsExpeditionUtil.Config.DailyLimit) or 0))
-    return math.max(0, Limit - Used), Limit
-end
-
-function AutoPetExpedition.FindEmptySlot(PetsExpeditionUtil)
-    for _, SlotIndex in ipairs(AutoPetExpedition.SlotOrder) do
-        local SlotData = PetsExpeditionUtil:GetSlotData(LocalPlayer, SlotIndex)
-        if not (SlotData and SlotData.UID) then
-            return SlotIndex
-        end
-    end
-    return nil
-end
-
-function AutoPetExpedition.FindBestPet(PetsExpeditionUtil, PetsUtil, PetsAffinityUtil, SlotIndex)
-    local Candidates = {}
-    for _, Pet in ipairs(PetsUtil:GetOwnedPets(LocalPlayer) or {}) do
-        if Pet.UID then
-            local Success, CanDispatch = pcall(PetsExpeditionUtil.CanDispatch, PetsExpeditionUtil, LocalPlayer,
-                SlotIndex, Pet.UID)
-            if Success and CanDispatch then
-                local Definition = PetsUtil:GetPetInfo(Pet.Id) or {}
-                table.insert(Candidates, {
-                    Pet = Pet,
-                    Affinity = PetsAffinityUtil:GetAffinityLevel(Pet.Affinity or 0),
-                    Rarity = tonumber(Definition.Rarity) or 0,
-                    Sort = tonumber(Definition.Sort) or math.huge
-                })
-            end
-        end
-    end
-    table.sort(Candidates, function(Left, Right)
-        if Left.Affinity ~= Right.Affinity then
-            return Left.Affinity > Right.Affinity
-        end
-        if Left.Rarity ~= Right.Rarity then
-            return Left.Rarity > Right.Rarity
-        end
-        if Left.Sort ~= Right.Sort then
-            return Left.Sort < Right.Sort
-        end
-        return tonumber(Left.Pet.UID) < tonumber(Right.Pet.UID)
-    end)
-    return Candidates[1] and Candidates[1].Pet or nil
-end
-
-function AutoPetExpedition.WaitForSlot(PetsExpeditionUtil, SlotIndex, ExpectedUID)
-    local Deadline = os.clock() + AutoPetExpedition.ConfirmTimeout
-    while AutoPetExpedition.Token.Alive and os.clock() < Deadline do
-        local SlotData = PetsExpeditionUtil:GetSlotData(LocalPlayer, SlotIndex)
-        if ExpectedUID == nil then
-            if not (SlotData and SlotData.UID) then
-                return true
-            end
-        elseif SlotData and SlotData.UID == ExpectedUID then
-            return true
-        end
-        task.wait(0.2)
-    end
-    return false
-end
-
-function AutoPetExpedition.RunCycle()
-    local PetsExpeditionUtil, PetsUtil, PetsAffinityUtil = AutoPetExpedition.GetModules()
-    local RemoteEvent = PetsExpeditionUtil.RemoteEvent
-    if not RemoteEvent then
-        AutoPetExpedition.SetStatus("UNAVAILABLE")
-        return
-    end
-
-    if _G.AutoClaimPetExpedition then
-        for SlotIndex = 1, AutoPetExpedition.SlotCount do
-            local SlotData = PetsExpeditionUtil:GetSlotData(LocalPlayer, SlotIndex)
-            if SlotData and SlotData.UID and PetsExpeditionUtil:IsCompleted(SlotData) then
-                AutoPetExpedition.SetStatus("CLAIMING SLOT " .. tostring(SlotIndex))
-                RemoteEvent:FireServer("Claim", SlotIndex)
-                AutoPetExpedition.SetStatus(AutoPetExpedition.WaitForSlot(PetsExpeditionUtil, SlotIndex, nil) and
-                    "CLAIMED SLOT " .. tostring(SlotIndex) or "CLAIM TIMEOUT")
-                return
-            end
-        end
-    end
-
-    if not _G.AutoPetExpedition then
-        AutoPetExpedition.SetStatus("CLAIM READY")
-        return
-    end
-
-    local Remaining, Limit = AutoPetExpedition.GetRemaining(PetsExpeditionUtil)
-    if Remaining <= 0 then
-        AutoPetExpedition.SetStatus("DAILY LIMIT")
-        return
-    end
-    if #AutoPetExpedition.SlotOrder <= 0 then
-        AutoPetExpedition.SetStatus("NO ENABLED SLOT")
-        return
-    end
-
-    local SlotIndex = AutoPetExpedition.FindEmptySlot(PetsExpeditionUtil)
-    if not SlotIndex then
-        AutoPetExpedition.SetStatus("NO EMPTY SLOT")
-        return
-    end
-    local Pet = AutoPetExpedition.FindBestPet(PetsExpeditionUtil, PetsUtil, PetsAffinityUtil, SlotIndex)
-    if not Pet then
-        AutoPetExpedition.SetStatus("NO ELIGIBLE PET")
-        return
-    end
-
-    local PetUID = Pet.UID
-    AutoPetExpedition.SetStatus("DISPATCHING SLOT " .. tostring(SlotIndex))
-    RemoteEvent:FireServer("Dispatch", SlotIndex, PetUID)
-    AutoPetExpedition.SetStatus(AutoPetExpedition.WaitForSlot(PetsExpeditionUtil, SlotIndex, PetUID) and
-        "READY - " .. tostring(math.max(0, Remaining - 1)) .. "/" .. tostring(Limit) or "DISPATCH TIMEOUT")
-end
-
-function AutoPetExpedition.SetEnabled(DispatchEnabled, ClaimEnabled)
-    if DispatchEnabled ~= nil then
-        _G.AutoPetExpedition = DispatchEnabled == true
-    end
-    if ClaimEnabled ~= nil then
-        _G.AutoClaimPetExpedition = ClaimEnabled == true
-    end
-    SaveConfig()
-end
-
-task.spawn(function()
-    while AutoPetExpedition.Token.Alive do
-        task.wait(AutoPetExpedition.PollInterval)
-        if _G.AutoPetExpedition or _G.AutoClaimPetExpedition then
-            if RejoinWatchdog.BlocksAutomation() then
-                AutoPetExpedition.SetStatus("PAUSED - REJOIN")
-            else
-                local Success, ErrorMessage = pcall(AutoPetExpedition.RunCycle)
-                if not Success then
-                    AutoPetExpedition.SetStatus("ERROR")
-                    warn("[AutoPetExpedition] " .. tostring(ErrorMessage))
-                end
-            end
-        else
-            AutoPetExpedition.SetStatus("OFF")
-        end
-    end
-end)
-
-function AutoPetHatch.SetStatus(Status)
-    if AutoPetHatch.Status ~= Status then
-        AutoPetHatch.Status = Status
-        if AutoPetHatch.Refresh then
-            pcall(AutoPetHatch.Refresh)
-        end
-    end
-end
-
-function AutoPetHatch.GetModules()
-    local Modules = GetFrameworkModule().Modules
-    return Modules.PetsHatchUtil, Modules.DataUtil, Modules.TimeUtil
-end
-
-function AutoPetHatch.GetEggs(PetsHatchUtil)
-    local Eggs = {}
-    for UUID, EggData in pairs(PetsHatchUtil:GetOwnedEggs(LocalPlayer) or {}) do
-        local ConfigData = EggData and PetsHatchUtil:GetEggCfg(EggData.EggId)
-        if ConfigData then
-            table.insert(Eggs, {
-                UUID = UUID,
-                EggData = EggData,
-                Rarity = tonumber(ConfigData.Rarity) or 0,
-                Sort = tonumber(ConfigData.Sort) or math.huge
-            })
-        end
-    end
-    table.sort(Eggs, function(Left, Right)
-        if Left.Rarity ~= Right.Rarity then
-            return Left.Rarity > Right.Rarity
-        elseif Left.Sort ~= Right.Sort then
-            return Left.Sort < Right.Sort
-        end
-        return tostring(Left.UUID) < tostring(Right.UUID)
-    end)
-    return Eggs
-end
-
-function AutoPetHatch.GetSignature(PetsHatchUtil)
-    local Parts = {}
-    for _, Egg in ipairs(AutoPetHatch.GetEggs(PetsHatchUtil)) do
-        table.insert(Parts, "E:" .. tostring(Egg.UUID) .. ":" .. tostring(Egg.EggData.EggId))
-    end
-    for SlotIndex = 1, 3 do
-        local SlotData = PetsHatchUtil:GetSlotData(LocalPlayer, SlotIndex)
-        table.insert(Parts, "S:" .. tostring(SlotIndex) .. ":" .. tostring(SlotData and SlotData.EggId or "") ..
-            ":" .. tostring(SlotData and SlotData.StartTime or ""))
-    end
-    return table.concat(Parts, "|")
-end
-
-function AutoPetHatch.Queue()
-    if not _G.AutoPetHatch or AutoPetHatch.Queued or AutoPetHatch.Pending or not AutoPetHatch.Token.Alive then
-        return
-    end
-    AutoPetHatch.Queued = true
-    task.defer(function()
-        AutoPetHatch.Queued = false
-        if not AutoPetHatch.Token.Alive or not _G.AutoPetHatch or AutoPetHatch.Pending then
-            return
-        end
-        local Success, ErrorMessage = pcall(AutoPetHatch.Reconcile)
-        if not Success then
-            AutoPetHatch.SetStatus("ERROR")
-            warn("[AutoPetHatch] " .. tostring(ErrorMessage))
-        end
-    end)
-end
-
-function AutoPetHatch.BeginConfirmation(Signature)
-    AutoPetHatch.Pending = true
-    AutoPetHatch.PendingSignature = Signature
-    local Generation = AutoPetHatch.Generation
-    task.delay(AutoPetHatch.ConfirmTimeout, function()
-        if not AutoPetHatch.Token.Alive or not _G.AutoPetHatch or Generation ~= AutoPetHatch.Generation or
-            not AutoPetHatch.Pending then
-            return
-        end
-        local PetsHatchUtil = AutoPetHatch.GetModules()
-        if AutoPetHatch.GetSignature(PetsHatchUtil) ~= AutoPetHatch.PendingSignature then
-            AutoPetHatch.Pending = false
-            AutoPetHatch.RetryCount = 0
-            AutoPetHatch.Queue()
-        elseif AutoPetHatch.RetryCount < 1 then
-            AutoPetHatch.Pending = false
-            AutoPetHatch.RetryCount = 1
-            AutoPetHatch.SetStatus("RETRYING")
-            AutoPetHatch.Queue()
-        else
-            AutoPetHatch.Pending = false
-            AutoPetHatch.SetStatus("WAITING EVENT")
-        end
-    end)
-end
-
-function AutoPetHatch.ScheduleCompletion(PetsHatchUtil, TimeUtil)
-    local Shortest = nil
-    for SlotIndex = 1, 3 do
-        local SlotData = PetsHatchUtil:GetSlotData(LocalPlayer, SlotIndex)
-        if SlotData and SlotData.EggId and not PetsHatchUtil:IsCompleted(SlotData) then
-            local EggConfig = PetsHatchUtil:GetEggCfg(SlotData.EggId)
-            if EggConfig then
-                local Duration = tonumber(EggConfig.HatchDuration)
-                local StartTime = tonumber(SlotData.StartTime)
-                if Duration and Duration > 0 and StartTime then
-                    local Remaining = math.max(0, Duration - (TimeUtil:GetNow() - StartTime))
-                    Shortest = Shortest and math.min(Shortest, Remaining) or Remaining
-                end
-            end
-        end
-    end
-    if not Shortest then
-        return
-    end
-    AutoPetHatch.Generation = AutoPetHatch.Generation + 1
-    local Generation = AutoPetHatch.Generation
-    task.delay(math.max(0.2, Shortest + 0.2), function()
-        if AutoPetHatch.Token.Alive and _G.AutoPetHatch and Generation == AutoPetHatch.Generation and
-            not AutoPetHatch.Pending then
-            AutoPetHatch.Queue()
-        end
-    end)
-end
-
-function AutoPetHatch.Reconcile()
-    if RejoinWatchdog.BlocksAutomation() then
-        AutoPetHatch.SetStatus("PAUSED - REJOIN")
-        return
-    end
-
-    local PetsHatchUtil, _, TimeUtil = AutoPetHatch.GetModules()
-    local Signature = AutoPetHatch.GetSignature(PetsHatchUtil)
-    for SlotIndex = 1, 3 do
-        local SlotData = PetsHatchUtil:GetSlotData(LocalPlayer, SlotIndex)
-        if SlotData and SlotData.EggId and PetsHatchUtil:IsCompleted(SlotData) then
-            AutoPetHatch.SetStatus("CLAIMING SLOT " .. tostring(SlotIndex))
-            AutoPetHatch.BeginConfirmation(Signature)
-            PetsHatchUtil:Claim(LocalPlayer, SlotIndex)
-            return
-        end
-    end
-
-    local EmptySlot = nil
-    for SlotIndex = 1, 3 do
-        local SlotData = PetsHatchUtil:GetSlotData(LocalPlayer, SlotIndex)
-        if not (SlotData and SlotData.EggId) then
-            EmptySlot = SlotIndex
-            break
-        end
-    end
-    local Eggs = AutoPetHatch.GetEggs(PetsHatchUtil)
-    if not EmptySlot then
-        AutoPetHatch.SetStatus("HATCHING")
-        AutoPetHatch.ScheduleCompletion(PetsHatchUtil, TimeUtil)
-        return
-    end
-    local Egg = Eggs[1]
-    if not Egg then
-        AutoPetHatch.SetStatus("NO EGGS")
-        AutoPetHatch.ScheduleCompletion(PetsHatchUtil, TimeUtil)
-        return
-    end
-
-    AutoPetHatch.SetStatus("HATCHING SLOT " .. tostring(EmptySlot))
-    AutoPetHatch.BeginConfirmation(Signature)
-    PetsHatchUtil:StartHatch(LocalPlayer, EmptySlot, Egg.UUID)
-    return
-end
-
-function AutoPetHatch.OnDataChanged()
-    AutoPetHatch.Generation = AutoPetHatch.Generation + 1
-    AutoPetHatch.Pending = false
-    AutoPetHatch.PendingSignature = nil
-    AutoPetHatch.RetryCount = 0
-    AutoPetHatch.Queue()
-end
-
-function AutoPetHatch.SetEnabled(Value)
-    _G.AutoPetHatch = Value == true
-    AutoPetHatch.Generation = AutoPetHatch.Generation + 1
-    AutoPetHatch.Pending = false
-    AutoPetHatch.RetryCount = 0
-    SaveConfig()
-    AutoPetHatch.SetStatus(_G.AutoPetHatch and "READY" or "OFF")
-    AutoPetHatch.Queue()
-end
-
-function AutoPetHatch.Connect()
-    if AutoPetHatch.Connected then
-        return
-    end
-    AutoPetHatch.Connected = true
-    local _, DataUtil = AutoPetHatch.GetModules()
-    DataUtil:ListenFor(LocalPlayer, {"PetHatch", "Egg"}, AutoPetHatch.OnDataChanged)
-    DataUtil:ListenFor(LocalPlayer, {"PetHatch", "Slots"}, AutoPetHatch.OnDataChanged)
-    AutoPetHatch.Queue()
-end
-
-AutoPetHatch.Connect()
 
 function AutoForge.GetKeyString()
     if not AutoForge.KeyString then
@@ -3383,12 +2416,6 @@ local function GetScreenMatch()
     return MainGui and MainGui:FindFirstChild("ScreenMatch")
 end
 
-function AutoEndlessTower.GetScreenMatch()
-    local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
-    local MainGui = PlayerGui and PlayerGui:FindFirstChild("MainGui")
-    return MainGui and MainGui:FindFirstChild("ScreenMatch_Endless")
-end
-
 local function IsAutoStartFreeMatchRoom(Room)
     local PlayersCount = tonumber(Room:GetAttribute("PlayersCount")) or 0
     local RoomState = Room:GetAttribute("RoomState")
@@ -3427,59 +2454,25 @@ local function FindAutoStartFreePortal()
     end
 end
 
-function AutoEndlessTower.FindFreePortal()
-    local MatchRoom = workspace:FindFirstChild("MatchRoom")
-    if not MatchRoom then
-        return nil, nil
-    end
-    for Index = 9, 10 do
-        local Room = MatchRoom:FindFirstChild("Room" .. tostring(Index))
-        if Room and IsAutoStartFreeMatchRoom(Room) then
-            local PortalPart = FindAutoStartPortalPart(Room)
-            if PortalPart then
-                return Room, PortalPart
-            end
-        end
-    end
-end
-
-function AutoLobbyStartGate.TouchRoomPortal(Room, PortalPart, LogPrefix)
+local function TouchAutoStartPortal()
     if not firetouchinterest then
-        print(LogPrefix .. " firetouchinterest unavailable")
+        print("[AutoStart] firetouchinterest unavailable")
         return false
     end
 
     local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
     local RootPart = Character:FindFirstChild("HumanoidRootPart") or Character:WaitForChild("HumanoidRootPart", 3)
+    local Room, PortalPart = FindAutoStartFreePortal()
     if not RootPart or not PortalPart then
-        print(LogPrefix .. " Waiting free match room")
+        print("[AutoStart] Waiting free match room")
         return false
     end
 
-    print(LogPrefix .. " Touching " .. Room.Name .. " portal")
-    local Direction = PortalPart.Position - RootPart.Position
-    if Direction.Magnitude < 0.1 then
-        Direction = RootPart.CFrame.LookVector
-    else
-        Direction = Direction.Unit
-    end
-    RootPart.CFrame = CFrame.new(PortalPart.Position - (Direction * 2) + Vector3.new(0, 1, 0))
-    RootPart.AssemblyLinearVelocity = Direction * 12
-    task.wait(0.05)
-    RootPart.CFrame = CFrame.new(PortalPart.Position + (Direction * 2) + Vector3.new(0, 1, 0))
+    print("[AutoStart] Touching " .. Room.Name .. " portal")
     firetouchinterest(RootPart, PortalPart, 0)
     task.wait(0.2)
     firetouchinterest(RootPart, PortalPart, 1)
     return true
-end
-
-local function TouchAutoStartPortal()
-    local Room, PortalPart = FindAutoStartFreePortal()
-    return AutoLobbyStartGate.TouchRoomPortal(Room, PortalPart, "[AutoStart]")
-end
-
-function AutoEndlessTower.TouchPortal(Room, PortalPart)
-    return AutoLobbyStartGate.TouchRoomPortal(Room, PortalPart, "[AutoEndless]")
 end
 
 local function WaitForScreenMatchVisible(Timeout)
@@ -3512,204 +2505,20 @@ local function IsAutoStartGuiVisible(Obj)
     return true
 end
 
-function AutoEndlessTower.WaitForMatchVisible(Timeout)
-    local StartedAt = os.clock()
-    repeat
-        local ScreenMatch = AutoEndlessTower.GetScreenMatch()
-        if ScreenMatch and ScreenMatch.Visible then
-            return ScreenMatch
-        end
-        task.wait(0.1)
-    until os.clock() - StartedAt >= Timeout
-    return nil
-end
-
-function AutoEndlessTower.SetStatus(Status)
-    if AutoEndlessTower.Status == Status then
-        return
-    end
-    AutoEndlessTower.Status = Status
-    if AutoEndlessTower.Refresh then
-        pcall(AutoEndlessTower.Refresh)
-    end
-end
-
-function AutoEndlessTower.TryJoin()
-    if not _G.AutoJoinEndlessTower or RejoinWatchdog.BlocksAutomation() or SellPending then
-        return false
-    end
-    if IsInLobby and IsInLobby() and LocalPlayer:GetAttribute("EnterRoomId") then
-        AutoEndlessTower.SetStatus("ROOM ASSIGNED")
-        return false
-    end
-    if not AutoLobbyStartGate.IsReady() then
-        AutoEndlessTower.SetStatus(AutoPotion.IsEndlessTower() and "IN TOWER" or "WAITING LOBBY")
-        return false
-    end
-
-    local CurrentTime = os.clock()
-    if CurrentTime - AutoEndlessTower.LastAttemptAt < AutoEndlessTower.RetryDelay then
-        return false
-    end
-    AutoEndlessTower.LastAttemptAt = CurrentTime
-
-    local Room, PortalPart = AutoEndlessTower.FindFreePortal()
-    if not Room or not PortalPart then
-        AutoEndlessTower.SetStatus("WAITING EMPTY ROOM9/10")
-        return false
-    end
-
-    local BackpackOk, Current, Max = pcall(GetOreBackpackUsage)
-    if BackpackOk and Max > 0 and Current >= Max then
-        AutoEndlessTower.SetStatus("BACKPACK FULL")
-        if _G.AutoSell then
-            SellPending = true
-            SellPendingReason = "endless backpack full"
-        end
-        return false
-    end
-
-    local ScreenMatchEndless = AutoEndlessTower.GetScreenMatch()
-    if not ScreenMatchEndless or not ScreenMatchEndless.Visible then
-        AutoEndlessTower.SetStatus("TOUCHING " .. Room.Name)
-        if not AutoEndlessTower.TouchPortal(Room, PortalPart) then
-            return false
-        end
-        ScreenMatchEndless = AutoEndlessTower.WaitForMatchVisible(3)
-        if not ScreenMatchEndless then
-            AutoEndlessTower.SetStatus("WAITING SCREENMATCH_ENDLESS")
-            return false
-        end
-    end
-
-    local StartingRound, MaxRound = AutoEndlessTower.ResolveStartingRound()
-    AutoEndlessTower.SetStatus("CREATING " .. Room.Name .. " · ROUND " .. tostring(StartingRound))
-    print("[AutoEndless] Creating " .. Room.Name .. " players=" .. tostring(AutoEndlessTower.MaxPlayers) ..
-              " start=" .. tostring(StartingRound) .. " max=" .. tostring(MaxRound))
-    GetGameMatchRemoteEvent():FireServer("CreatRoom", "Endless1", 1, AutoEndlessTower.MaxPlayers, StartingRound)
-    AutoStartPending = false
-    if Config.DeathRestartPending or Config.RecoveryPending then
-        Config.DeathRestartPending = false
-        Config.RecoveryPending = false
-        SaveConfig()
-    end
-    return true
-end
-
 local function ClickGuiButton(Button)
     if not Button or not Button:IsA("GuiObject") or not IsAutoStartGuiVisible(Button) then
         return false
-    end
-    if RejoinWatchdog.TryFireGuiButtonSignals(Button) then
-        return true
     end
 
     local Position = Button.AbsolutePosition + (Button.AbsoluteSize / 2)
     VirtualInputManager:SendMouseButtonEvent(Position.X, Position.Y, 0, true, game, 0)
     task.wait(0.05)
     VirtualInputManager:SendMouseButtonEvent(Position.X, Position.Y, 0, false, game, 0)
-    return true
-end
-
-function AutoEndlessTower.TryStartRun()
-    local CurrentTime = os.clock()
-    if CurrentTime - AutoEndlessTower.LastStartAttemptAt < AutoEndlessTower.StartRetryDelay then
-        return false
+    if firesignal and Button:IsA("GuiButton") then
+        pcall(firesignal, Button.MouseButton1Down)
+        pcall(firesignal, Button.MouseButton1Click)
+        pcall(firesignal, Button.Activated)
     end
-
-    local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
-    if not PlayerGui then
-        return false
-    end
-
-    local Title = nil
-    for _, Object in ipairs(PlayerGui:GetDescendants()) do
-        if (Object:IsA("TextLabel") or Object:IsA("TextButton")) and IsAutoStartGuiVisible(Object) and
-            string.find(string.lower(tostring(Object.Text)), "equip extra weapon", 1, true) then
-            Title = Object
-            break
-        end
-    end
-    if not Title then
-        AutoEndlessExtraWeapon.ResetRequest()
-        return false
-    end
-
-    local StartButton = nil
-    local Root = Title.Parent
-    while Root and Root ~= PlayerGui.Parent and not StartButton do
-        for _, Object in ipairs(Root:GetDescendants()) do
-            if Object:IsA("GuiButton") and IsAutoStartGuiVisible(Object) then
-                local Text = Object:IsA("TextButton") and Object.Text or ""
-                if string.find(string.lower(Object.Name .. " " .. tostring(Text)), "start", 1, true) then
-                    StartButton = Object
-                    break
-                end
-            elseif Object:IsA("TextLabel") and IsAutoStartGuiVisible(Object) and
-                string.lower(tostring(Object.Text)) == "start" then
-                local ParentButton = Object:FindFirstAncestorWhichIsA("GuiButton")
-                if ParentButton and IsAutoStartGuiVisible(ParentButton) then
-                    StartButton = ParentButton
-                    break
-                end
-            end
-        end
-        Root = Root.Parent
-    end
-
-    AutoEndlessTower.LastStartAttemptAt = CurrentTime
-    if not StartButton then
-        AutoEndlessTower.SetStatus("WAITING START BUTTON")
-        return true
-    end
-
-    local Candidate, FellBack, Options = AutoEndlessExtraWeapon.ResolveSelection()
-    if not Candidate then
-        AutoEndlessExtraWeapon.SetStatus("NO ELIGIBLE WEAPON")
-        AutoEndlessExtraWeapon.ResetRequest()
-        AutoEndlessTower.SetStatus("STARTING RUN")
-        ClickGuiButton(StartButton)
-        return true
-    end
-
-    if AutoEndlessExtraWeapon.Attempt == 0 then
-        AutoEndlessExtraWeapon.RequestedUUID = Candidate.UUID
-        AutoEndlessExtraWeapon.RequestedAt = CurrentTime
-        AutoEndlessExtraWeapon.Attempt = 1
-        AutoEndlessExtraWeapon.RequestEquip(Candidate.UUID)
-        AutoEndlessExtraWeapon.SetStatus((FellBack and "FALLBACK: " or "EQUIPPING: ") .. Candidate.Label)
-        return true
-    end
-
-    local EquippedUUID = LocalPlayer:GetAttribute("ExtraWeaponUUID")
-    if EquippedUUID == AutoEndlessExtraWeapon.RequestedUUID then
-        AutoEndlessExtraWeapon.SetStatus("EQUIPPED: " .. Candidate.Label)
-        AutoEndlessExtraWeapon.ResetRequest()
-        AutoEndlessTower.SetStatus("STARTING RUN")
-        print("[AutoEndless] Activating Equip Extra Weapon Start")
-        ClickGuiButton(StartButton)
-        return true
-    end
-
-    if CurrentTime - AutoEndlessExtraWeapon.RequestedAt < AutoEndlessExtraWeapon.ConfirmTimeout then
-        AutoEndlessExtraWeapon.SetStatus("WAITING EQUIP CONFIRM")
-        return true
-    end
-
-    if AutoEndlessExtraWeapon.Attempt == 1 then
-        local Highest = Options[1] or Candidate
-        AutoEndlessExtraWeapon.RequestedUUID = Highest.UUID
-        AutoEndlessExtraWeapon.RequestedAt = CurrentTime
-        AutoEndlessExtraWeapon.Attempt = 2
-        AutoEndlessExtraWeapon.RequestEquip(Highest.UUID)
-        AutoEndlessExtraWeapon.SetStatus("RETRY HIGHEST: " .. Highest.Label)
-        return true
-    end
-
-    AutoEndlessExtraWeapon.SetStatus("EQUIP TIMEOUT")
-    AutoEndlessExtraWeapon.ResetRequest()
-    AutoEndlessTower.SetStatus("STARTING RUN")
-    ClickGuiButton(StartButton)
     return true
 end
 
@@ -3785,12 +2594,11 @@ local function PrepareScreenMatchForAutoStart(ScreenMatch)
 end
 
 local function TryAutoStartSoloDungeon()
-    if _G.AutoJoinEndlessTower or RejoinWatchdog.BlocksAutomation() or SellPending or not _G.AutoFarm or
-        not _G.AutoReplay then
+    if RejoinWatchdog.BlocksAutomation() or SellPending or not _G.AutoFarm or not _G.AutoReplay then
         return false
     end
 
-    if not AutoLobbyStartGate.IsReady() then
+    if not IsInLobby or not IsInLobby() then
         return false
     end
 
@@ -3827,10 +2635,6 @@ local function TryAutoStartSoloDungeon()
     GetGameMatchRemoteEvent():FireServer("CreatRoom", AutoStartWorldId, AutoStartDifficulty, AutoStartMaxPlayers)
     LastAutoStartDungeonAt = os.clock()
     AutoStartPending = false
-    if Config.DeathRestartPending then
-        Config.DeathRestartPending = false
-        SaveConfig()
-    end
     print("[AutoStart] Create room fired")
     return true
 end
@@ -3851,35 +2655,6 @@ local function QueueAutoStartSoloDungeon()
     end
     print("[AutoStart] Queued solo dungeon restart")
     TryAutoStartSoloDungeon()
-end
-
-function AutoGiveupFlow.ProcessLobbyRestart()
-    if not Config.DeathRestartPending or RejoinWatchdog.BlocksAutomation() or not IsInLobby or not IsInLobby() then
-        return
-    end
-    if not _G.AutoFarm or not _G.AutoReplay then
-        Config.DeathRestartPending = false
-        SaveConfig()
-        return
-    end
-    if AutoStartPending then
-        return
-    end
-
-    local Success, Current, Max = pcall(GetOreBackpackUsage)
-    if not Success then
-        return
-    end
-    if Max > 0 and Current >= Max then
-        if _G.AutoSell then
-            SellPending = true
-            SellPendingReason = "death backpack full"
-        end
-        return
-    end
-
-    print("[Auto Giveup] Lobby reached; queueing dungeon restart")
-    QueueAutoStartSoloDungeon()
 end
 
 local function RequestAutoSellContext()
@@ -3917,11 +2692,11 @@ local function TryAutoSellOresOnce()
             BeforeCounts[OreId] = Count
             print("[AutoSell] Attempt " .. tostring(OreId) .. " x" .. tostring(Count) .. " rarity " ..
                       tostring(Def and Def.Rarity or "?"))
-            SellList[OreId] = Count
+            table.insert(SellList, OreId)
         end
     end
 
-    if next(SellList) == nil then
+    if #SellList <= 0 then
         return
     end
 
@@ -3940,7 +2715,7 @@ local function TryAutoSellOresOnce()
 
     task.wait(0.35)
     local AfterOres = DataUtil:GetValue(LocalPlayer, {"Ores"}) or {}
-    for OreId in pairs(SellList) do
+    for _, OreId in pairs(SellList) do
         local BeforeCount = BeforeCounts[OreId] or 0
         local AfterCount = tonumber(AfterOres[OreId]) or 0
         if AfterCount <= 0 then
@@ -4246,25 +3021,6 @@ end)
 
 task.spawn(function()
     while true do
-        task.wait(0.5)
-        if _G.AutoJoinEndlessTower then
-            local StartSuccess, StartHandled = pcall(AutoEndlessTower.TryStartRun)
-            if not StartSuccess then
-                AutoEndlessTower.SetStatus("ERROR: " .. tostring(StartHandled))
-            elseif not StartHandled then
-                local JoinSuccess, JoinError = pcall(AutoEndlessTower.TryJoin)
-                if not JoinSuccess then
-                    AutoEndlessTower.SetStatus("ERROR: " .. tostring(JoinError))
-                end
-            end
-        elseif AutoEndlessTower.Status ~= "OFF" then
-            AutoEndlessTower.SetStatus("OFF")
-        end
-    end
-end)
-
-task.spawn(function()
-    while true do
         task.wait(AutoSellDelay)
         if (_G.AutoSell or Config.RecoveryPending) and IsInLobby and IsInLobby() and
             not RejoinWatchdog.BlocksAutomation() and not AutoForge.State.Running then
@@ -4286,7 +3042,6 @@ local oldCallback
 if type(setBypass) == "function" and type(getMethod) == "function" then
     oldCallback = setBypass(game, "__namecall", function(self, ...)
         local method = getMethod()
-        local argumentCount = select("#", ...)
         local args = {...}
 
         -- Hanya berjalan jika fitur di UI bernilai TRUE dan memanggil Remote ForgeRF
@@ -4298,30 +3053,10 @@ if type(setBypass) == "function" and type(getMethod) == "function" then
             end
         end
 
-        if method == "FireServer" and self == AutoSkillNetworkFlow.Remote and args[1] == "BulletShoot" and
-            not AutoSkillNetworkFlow.Replaying and _G.AutoFarm and _G.AutoSkill and
-            os.clock() <= AutoSkillNetworkFlow.CaptureUntil then
-            local CapturedArgs = table.clone(args)
-            CapturedArgs.n = argumentCount
-            task.spawn(function()
-                for ReplayIndex = 2, AutoSkillNetworkFlow.Multiplier do
-                    task.wait(AutoSkillNetworkFlow.ReplayDelay)
-                    AutoSkillNetworkFlow.Replaying = true
-                    local Sent = pcall(function()
-                        self:FireServer(unpack(CapturedArgs, 1, CapturedArgs.n))
-                    end)
-                    AutoSkillNetworkFlow.Replaying = false
-                    if not Sent then
-                        break
-                    end
-                end
-            end)
-        end
-
-        return oldCallback(self, unpack(args, 1, argumentCount))
+        return oldCallback(self, unpack(args))
     end)
 else
-    warn("[Bugon V6] Perfect Forge/network burst hook unavailable; continuing without hook")
+    warn("[Bugon V6] Perfect Forge hook unavailable; continuing without hook")
 end
 
 local function UpdateStatsLabel()
@@ -4372,7 +3107,6 @@ task.spawn(function()
             RejoinWatchdog.Log("WATCHDOG_ERROR", ErrorMessage)
         end
         pcall(RejoinWatchdog.ProcessPostRejoin)
-        pcall(AutoGiveupFlow.ProcessLobbyRestart)
     end
 end)
 
@@ -4491,68 +3225,6 @@ local SkillButtonNames = {
     R = "SkillU"
 }
 local SkillPriority = {"G", "R", "E", "Q"}
-local SkillBurstDelay = 0.04
-AutoSkillVisualFlow = AutoSkillVisualFlow or {
-    Hooks = {},
-    SuppressUntil = 0
-}
-AutoSkillVisualFlow.Methods = {
-    "ProcFX",
-    "ProcSFX",
-    "ProcCameraShake",
-    "ProcCameraShote",
-    "ProcCameraFOV",
-    "ProcFilmEffect",
-    "ProcLighting"
-}
-
-function AutoSkillVisualFlow.ShouldSuppress(Self)
-    return Self and Self.IsSelf and os.clock() <= (AutoSkillVisualFlow.SuppressUntil or 0)
-end
-
-function AutoSkillVisualFlow.Install()
-    if not hookfunction then
-        return false
-    end
-
-    local PlayerScripts = LocalPlayer:FindFirstChild("PlayerScripts")
-    local GameScripts = PlayerScripts and PlayerScripts:FindFirstChild("Game")
-    local DisplayScript = GameScripts and GameScripts:FindFirstChild("ClientSkillEffectDisplay")
-    local SkillEffectScript = DisplayScript and DisplayScript:FindFirstChild("SkillEffect")
-    if not SkillEffectScript then
-        return false
-    end
-
-    local Required, SkillEffect = pcall(require, SkillEffectScript)
-    if not Required or type(SkillEffect) ~= "table" then
-        return false
-    end
-    if AutoSkillVisualFlow.Module ~= SkillEffect then
-        AutoSkillVisualFlow.Module = SkillEffect
-        AutoSkillVisualFlow.Hooks = {}
-    end
-
-    for _, MethodName in ipairs(AutoSkillVisualFlow.Methods) do
-        if type(SkillEffect[MethodName]) == "function" and not AutoSkillVisualFlow.Hooks[MethodName] then
-            local Original
-            Original = hookfunction(SkillEffect[MethodName], function(Self, ...)
-                if AutoSkillVisualFlow.ShouldSuppress(Self) then
-                    return
-                end
-                return Original(Self, ...)
-            end)
-            AutoSkillVisualFlow.Hooks[MethodName] = Original
-        end
-    end
-    return true
-end
-
-task.spawn(function()
-    while not AutoSkillVisualFlow.Install() do
-        task.wait(1)
-    end
-end)
-
 local SkillDebug = _G.SkillDebug ~= false
 local SkillAnimationReleaseWindow = 0.2
 local WeaponSwitchCooldown = 3.1
@@ -4599,23 +3271,6 @@ local function GetSkillButton(key)
     end
     local Buttons = Skills and Skills:FindFirstChild("LocalPCSkillButtons")
     return (Buttons and Buttons:FindFirstChild(SkillName)) or (Skills and Skills:FindFirstChild(SkillName, true)) or nil
-end
-
-local function TriggerSkillButton(key)
-    -- ponytail: 8s covers current multi-stage skills; use stage-completion tracking if longer skills appear.
-    AutoSkillVisualFlow.SuppressUntil = os.clock() + 8
-    AutoSkillNetworkFlow.CaptureUntil = os.clock() + 8
-    local Button = GetSkillButton(key)
-    if Button and Button:IsA("GuiButton") and firesignal then
-        local DownOk = pcall(firesignal, Button.MouseButton1Down)
-        task.wait(0.01)
-        local UpOk = pcall(firesignal, Button.MouseButton1Up)
-        if DownOk and UpOk then
-            return "button"
-        end
-    end
-    PressKey(key)
-    return "keyboard"
 end
 
 local function IsWeaponSwitchReady()
@@ -4756,17 +3411,18 @@ task.spawn(function()
                 DebugSkill("WAIT ANIM " .. tostring(AnimationName))
             else
                 local WaitReason = nil
-                local TriggeredSkill = false
+                local PressedSkill = false
                 for _, Key in ipairs(SkillPriority) do
                     local Button = GetSkillButton(Key)
                     if IsSkillReady(Key) then
                         NoSwitchSkillsReadySince = nil
                         IsSwitchPending = false
                         DebugSkill("PRESS " .. Key .. " -> " .. SkillButtonNames[Key])
-                        TriggerSkillButton(Key)
+                        PressKey(Key)
                         LastUsed[Key] = os.clock()
-                        TriggeredSkill = true
-                        task.wait(SkillBurstDelay)
+                        PressedSkill = true
+                        task.wait(0.15)
+                        break
                     elseif not WaitReason then
                         if Button then
                             WaitReason = Key .. " OnCD=" .. tostring(Button:GetAttribute("OnCD"))
@@ -4778,7 +3434,7 @@ task.spawn(function()
                         end
                     end
                 end
-                if not TriggeredSkill and ShouldSwitchWeapon(CurrentTime) then
+                if not PressedSkill and ShouldSwitchWeapon(CurrentTime) then
                     local PreviousSwitchTs = LocalPlayer:GetAttribute("SwitchWpnLastTs")
                     local PreviousWeaponUUID = GetEquippedWeaponUUID()
                     DebugSkillNow("SWITCH C try " .. GetSwitchButtonDebugSummary() .. " " .. GetAnimationDebugSummary())
@@ -4797,7 +3453,7 @@ task.spawn(function()
                         DebugSkill("SWITCH C retry " .. SwitchReason)
                     end
                     task.wait(0.15)
-                elseif WaitReason and not TriggeredSkill then
+                elseif WaitReason and not PressedSkill then
                     DebugSkill("WAIT CD " .. WaitReason)
                 end
             end
@@ -5030,8 +3686,8 @@ local LastPortalPosition = nil
 local LastPortalAttemptTime = 0
 
 local WAVE_TRIGGER_COOLDOWN = 2
-local PORTAL_COOLDOWN_DURATION = 4
-local MAP_LOAD_DELAY = 3
+local PORTAL_COOLDOWN_DURATION = 8
+local MAP_LOAD_DELAY = 5
 local SAME_PORTAL_POSITION_TOLERANCE = 3
 
 local function ResetPortalState()
@@ -5099,22 +3755,10 @@ local function TriggerPortalInteraction(MyRoot, PortalPart, UseTouchTrigger)
         end
     end
 
-    local function WakePortalTouch()
-        local Direction = PortalPart.Position - MyRoot.Position
-        if Direction.Magnitude < 0.1 then
-            Direction = MyRoot.CFrame.LookVector
-        else
-            Direction = Direction.Unit
-        end
-
-        MyRoot.CFrame = CFrame.new(PortalPart.Position - (Direction * 2) + Vector3.new(0, 1, 0))
-        MyRoot.AssemblyLinearVelocity = Direction * 12
-        task.wait(0.05)
-        MyRoot.CFrame = CFrame.new(PortalPart.Position + (Direction * 2) + Vector3.new(0, 1, 0))
-    end
-
     -- Pindahkan karakter ke trigger portal dan fire touch event asli.
-    WakePortalTouch()
+    MyRoot.CFrame = CFrame.new(PortalPart.Position + Vector3.new(0, 1, 0))
+
+    MyRoot.AssemblyLinearVelocity = Vector3.zero
     MyRoot.AssemblyAngularVelocity = Vector3.zero
 
     if UseTouchTrigger then
@@ -5138,7 +3782,7 @@ local function TriggerPortalInteraction(MyRoot, PortalPart, UseTouchTrigger)
         MyRoot.AssemblyLinearVelocity = Vector3.zero
         MyRoot.AssemblyAngularVelocity = Vector3.zero
         if UseTouchTrigger then
-            WakePortalTouch()
+            MyRoot.CFrame = CFrame.new(PortalPart.Position + Vector3.new(0, 1, 0))
             TouchPortal()
         end
     end
@@ -5453,80 +4097,71 @@ local function HasVictoryUi(guiObjects)
     return false
 end
 
+local function FindVisibleButtonByText(guiObjects, textPattern)
+    for i = 1, #guiObjects do
+        local obj = guiObjects[i]
+        if obj:IsA("TextButton") then
+            local nameLower = string.lower(obj.Name)
+            local textLower = string.lower(obj.Text)
+            if IsGuiVisible(obj) and (string.find(nameLower, textPattern) or string.find(textLower, textPattern)) then
+                return obj
+            end
+        elseif obj:IsA("ImageButton") then
+            local nameLower = string.lower(obj.Name)
+            if IsGuiVisible(obj) and string.find(nameLower, textPattern) then
+                return obj
+            end
+        elseif obj:IsA("TextLabel") then
+            local textLower = string.lower(obj.Text)
+            if IsGuiVisible(obj) and string.find(textLower, textPattern) then
+                local parentButton = obj:FindFirstAncestorWhichIsA("TextButton") or
+                                         obj:FindFirstAncestorWhichIsA("ImageButton") or obj.Parent
+                if IsGuiVisible(parentButton) then
+                    return parentButton
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function HasVisibleText(guiObjects, textPattern)
+    for i = 1, #guiObjects do
+        local obj = guiObjects[i]
+        if obj:IsA("TextLabel") or obj:IsA("TextButton") then
+            if IsGuiVisible(obj) and string.find(string.lower(obj.Text), textPattern) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function ScanAndHandleDeath()
+    local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not PlayerGui then
+        return
+    end
+    local SemuaGui = PlayerGui:GetDescendants()
+    if not HasVisibleText(SemuaGui, "you died") then
+        return
+    end
+
+    local GiveUpButton = FindVisibleButtonByText(SemuaGui, "give up")
+    if GiveUpButton then
+        print("[Auto Death] You died detected. Clicking Give up...")
+        Target = nil
+        EksekusiKlikReplay(GiveUpButton)
+        task.wait(5.0)
+    end
+end
+
 local function GetReturnToLobbyButton()
     local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
     local ResultGui = PlayerGui and PlayerGui:FindFirstChild("ResultGui")
     local ScreenSettlement = ResultGui and ResultGui:FindFirstChild("ScreenSettlement")
     local BtnGroup = ScreenSettlement and ScreenSettlement:FindFirstChild("BtnGroup")
     return BtnGroup and BtnGroup:FindFirstChild("ReturnToLobbyBtn")
-end
-
-local function GetGiveUpExitButton()
-    local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
-    local BattleHUD = PlayerGui and PlayerGui:FindFirstChild("BattleHUD")
-    local PlayerRevive = BattleHUD and BattleHUD:FindFirstChild("PlayerRevive")
-    local ReviveFrame = PlayerRevive and PlayerRevive:FindFirstChild("ReviveFrame")
-    local Revive = ReviveFrame and ReviveFrame:FindFirstChild("Revive")
-    return Revive and Revive:FindFirstChild("ExitBtn")
-end
-
-function AutoGiveupFlow.GetRemote()
-    if not AutoGiveupFlow.Remote then
-        local Remotes = ReplicatedStorage:FindFirstChild("Remotes")
-        AutoGiveupFlow.Remote = Remotes and Remotes:FindFirstChild("GamePlayerRE")
-    end
-    return AutoGiveupFlow.Remote
-end
-
-local function ScanAndHandleDeath()
-    if not _G.AutoGiveup then
-        return false
-    end
-    local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
-    if not PlayerGui then
-        return false
-    end
-    local ReturnButton = GetReturnToLobbyButton()
-    local ReturnButtonVisible = ReturnButton and IsGuiVisible(ReturnButton)
-    local RemainLife = LocalPlayer:GetAttribute("RemainLife")
-    local IsDead = type(RemainLife) == "number" and RemainLife <= 0
-    if not IsDead and not (AutoGiveupFlow.AwaitingSettlement and ReturnButtonVisible) then
-        return false
-    end
-
-    Target = nil
-    TargetKind = nil
-    IsEgg = false
-    local CurrentTime = os.clock()
-    if AutoGiveupFlow.AwaitingSettlement and ReturnButtonVisible then
-        if CurrentTime - AutoGiveupFlow.LastReturnRequestAt >= AutoGiveupFlow.ReturnRetryDelay then
-            AutoGiveupFlow.LastReturnRequestAt = CurrentTime
-            Config.DeathRestartPending = _G.AutoFarm and _G.AutoReplay
-            SaveConfig()
-            print("[Auto Giveup] Settlement ready; returning to lobby")
-            EksekusiKlikReplay(ReturnButton)
-        end
-        return true
-    end
-
-    if CurrentTime - AutoGiveupFlow.LastExitRequestAt >= AutoGiveupFlow.ExitRetryDelay then
-        AutoGiveupFlow.LastExitRequestAt = CurrentTime
-        local ExitButton = GetGiveUpExitButton()
-        if not AutoGiveupFlow.ExitButtonTried and ExitButton then
-            print("[Auto Giveup] Dead detected; activating PlayerRevive ExitBtn")
-            AutoGiveupFlow.ExitButtonTried = true
-            AutoGiveupFlow.AwaitingSettlement = true
-            EksekusiKlikReplay(ExitButton)
-        else
-            local Remote = AutoGiveupFlow.GetRemote()
-            if Remote then
-                print("[Auto Giveup] ExitBtn did not open settlement; requesting ExitSettlement fallback")
-                AutoGiveupFlow.AwaitingSettlement = true
-                Remote:FireServer("ExitSettlement")
-            end
-        end
-    end
-    return true
 end
 
 local function ScanAndExecuteReplay()
@@ -5602,15 +4237,7 @@ end
 
 task.spawn(function()
     while true do
-        local AutomationBlocked = RejoinWatchdog.BlocksAutomation()
-        local DeathHandled = false
-        if _G.AutoGiveup and not AutomationBlocked then
-            local Success, Result = pcall(ScanAndHandleDeath)
-            DeathHandled = Success and Result == true
-        end
-        if DeathHandled then
-            task.wait(0.2)
-        elseif _G.AutoFarm and not AutomationBlocked then
+        if _G.AutoFarm and not RejoinWatchdog.BlocksAutomation() then
             if IsInLobby() then
                 Target = nil
                 TargetKind = nil
@@ -5634,6 +4261,7 @@ task.spawn(function()
                     Target = nil
                     TargetKind = nil
                     IsEgg = false
+                    pcall(ScanAndHandleDeath)
 
                     if _G.AutoReplay then
                         pcall(ScanAndExecuteReplay)
@@ -5641,7 +4269,7 @@ task.spawn(function()
 
                     if _G.AutoProgressStage and not IsEnteringPortal and not PortalCooldown then
                         local CurrentTime = os.clock()
-                        if (CurrentTime - LastEnemySeen) >= 2.0 and (CurrentTime - LastPortalCheck) >= 0.75 then
+                        if (CurrentTime - LastEnemySeen) >= 4.0 and (CurrentTime - LastPortalCheck) >= 1.5 then
                             LastPortalCheck = CurrentTime
                             pcall(TeleportToNextStagePortal)
                         end
@@ -5799,7 +4427,7 @@ ModeButton.BorderSizePixel = 2
 ReplayButtonToggle.Name = "ReplayButtonToggle"
 ReplayButtonToggle.Parent = ScreenGui
 ReplayButtonToggle.BackgroundColor3 = _G.AutoReplay and Color3.fromRGB(0, 150, 75) or Color3.fromRGB(180, 40, 40) -- Hijau gelap bawaan aktif
-ReplayButtonToggle.Position = UDim2.new(0.05, 0, 0.34, 0) -- Berada tepat di bawah tombol mode        
+ReplayButtonToggle.Position = UDim2.new(0.05, 0, 0.34, 0) -- Berada tepat di bawah tombol mode
 ReplayButtonToggle.Size = UDim2.new(0, 160, 0, 40)
 ReplayButtonToggle.Font = Enum.Font.SourceSansBold
 ReplayButtonToggle.Text = _G.AutoReplay and "AUTO REPLAY: YES" or "AUTO REPLAY: NO"
@@ -5835,7 +4463,7 @@ SliderHeightButton.Text = ""
 ForgeButtonToggle.Name = "ForgeButtonToggle"
 ForgeButtonToggle.Parent = ScreenGui
 ForgeButtonToggle.BackgroundColor3 = _G.PerfectForge and Color3.fromRGB(150, 120, 0) or Color3.fromRGB(120, 30, 30) -- Warna Emas/Oranye gelap bawaan aktif
-ForgeButtonToggle.Position = UDim2.new(0.05, 0, 0.41, 40) -- Berada tepat di bawah slider Height        
+ForgeButtonToggle.Position = UDim2.new(0.05, 0, 0.41, 40) -- Berada tepat di bawah slider Height
 ForgeButtonToggle.Size = UDim2.new(0, 160, 0, 40)
 ForgeButtonToggle.Font = Enum.Font.SourceSansBold
 ForgeButtonToggle.Text = _G.PerfectForge and "PERFECT FORGE: YES" or "PERFECT FORGE: NO"
@@ -7317,81 +5945,6 @@ UserInputService.InputEnded:Connect(function(Input)
 end)
 RefreshV6Height()
 
-AutoSkillNetworkFlow.Card = Instance.new("Frame")
-AutoSkillNetworkFlow.Card.Name = "SkillNetworkBurstCard"
-AutoSkillNetworkFlow.Card.Size = UDim2.new(1, 0, 0, 62)
-AutoSkillNetworkFlow.Card.BackgroundColor3 = Theme.Surface
-AutoSkillNetworkFlow.Card.BorderSizePixel = 0
-AutoSkillNetworkFlow.Card.Parent = FarmTab
-AddCorner(AutoSkillNetworkFlow.Card, 6)
-AddStroke(AutoSkillNetworkFlow.Card)
-
-AutoSkillNetworkFlow.Title = CreateText(AutoSkillNetworkFlow.Card, "SKILL NETWORK BURST", 12)
-AutoSkillNetworkFlow.Title.Position = UDim2.fromOffset(10, 4)
-AutoSkillNetworkFlow.Title.Size = UDim2.new(1, -70, 0, 24)
-AutoSkillNetworkFlow.Value = CreateText(AutoSkillNetworkFlow.Card, "", 12, Theme.Accent,
-    Enum.TextXAlignment.Right)
-AutoSkillNetworkFlow.Value.Position = UDim2.new(1, -60, 0, 4)
-AutoSkillNetworkFlow.Value.Size = UDim2.fromOffset(50, 24)
-AutoSkillNetworkFlow.Value.Font = Enum.Font.GothamBold
-
-AutoSkillNetworkFlow.Track = Instance.new("TextButton")
-AutoSkillNetworkFlow.Track.AutoButtonColor = false
-AutoSkillNetworkFlow.Track.Text = ""
-AutoSkillNetworkFlow.Track.Position = UDim2.fromOffset(12, 39)
-AutoSkillNetworkFlow.Track.Size = UDim2.new(1, -24, 0, 6)
-AutoSkillNetworkFlow.Track.BackgroundColor3 = Theme.Disabled
-AutoSkillNetworkFlow.Track.BorderSizePixel = 0
-AutoSkillNetworkFlow.Track.Parent = AutoSkillNetworkFlow.Card
-AddCorner(AutoSkillNetworkFlow.Track, 3)
-
-AutoSkillNetworkFlow.Fill = Instance.new("Frame")
-AutoSkillNetworkFlow.Fill.BackgroundColor3 = Theme.Accent
-AutoSkillNetworkFlow.Fill.BorderSizePixel = 0
-AutoSkillNetworkFlow.Fill.Parent = AutoSkillNetworkFlow.Track
-AddCorner(AutoSkillNetworkFlow.Fill, 3)
-AutoSkillNetworkFlow.Knob = Instance.new("Frame")
-AutoSkillNetworkFlow.Knob.AnchorPoint = Vector2.new(0.5, 0.5)
-AutoSkillNetworkFlow.Knob.Size = UDim2.fromOffset(14, 14)
-AutoSkillNetworkFlow.Knob.BackgroundColor3 = Color3.new(1, 1, 1)
-AutoSkillNetworkFlow.Knob.BorderSizePixel = 0
-AutoSkillNetworkFlow.Knob.Parent = AutoSkillNetworkFlow.Track
-AddCorner(AutoSkillNetworkFlow.Knob, 7)
-
-function AutoSkillNetworkFlow.RefreshSlider()
-    local Percent = math.clamp((AutoSkillNetworkFlow.Multiplier - 3) / 5, 0, 1)
-    AutoSkillNetworkFlow.Value.Text = tostring(AutoSkillNetworkFlow.Multiplier) .. "x"
-    AutoSkillNetworkFlow.Fill.Size = UDim2.fromScale(Percent, 1)
-    AutoSkillNetworkFlow.Knob.Position = UDim2.fromScale(Percent, 0.5)
-end
-
-function AutoSkillNetworkFlow.UpdateSlider(Input)
-    local Percent = math.clamp((Input.Position.X - AutoSkillNetworkFlow.Track.AbsolutePosition.X) /
-                                   AutoSkillNetworkFlow.Track.AbsoluteSize.X, 0, 1)
-    AutoSkillNetworkFlow.Multiplier = math.floor(3 + Percent * 5 + 0.5)
-    AutoSkillNetworkFlow.RefreshSlider()
-end
-
-AutoSkillNetworkFlow.Track.InputBegan:Connect(function(Input)
-    if IsSliderInput(Input) then
-        AutoSkillNetworkFlow.Dragging = true
-        AutoSkillNetworkFlow.UpdateSlider(Input)
-    end
-end)
-UserInputService.InputChanged:Connect(function(Input)
-    if AutoSkillNetworkFlow.Dragging and
-        (Input.UserInputType == Enum.UserInputType.MouseMovement or Input.UserInputType == Enum.UserInputType.Touch) then
-        AutoSkillNetworkFlow.UpdateSlider(Input)
-    end
-end)
-UserInputService.InputEnded:Connect(function(Input)
-    if AutoSkillNetworkFlow.Dragging and IsSliderInput(Input) then
-        AutoSkillNetworkFlow.Dragging = false
-        SaveConfig()
-    end
-end)
-AutoSkillNetworkFlow.RefreshSlider()
-
 StatsLabel = Instance.new("TextLabel")
 StatsLabel.Name = "V6StatsLabel"
 StatsLabel.Size = UDim2.new(1, 0, 0, 96)
@@ -7442,22 +5995,16 @@ UtilityNavigation.BackgroundTransparency = 1
 UtilityNavigation.Parent = UtilityTab
 
 local DungeonTabButton = CreateButton(UtilityNavigation, "DUNGEON")
-DungeonTabButton.Size = UDim2.new(1 / 6, -4, 1, 0)
-local TowerTabButton = CreateButton(UtilityNavigation, "TOWER")
-TowerTabButton.Position = UDim2.new(1 / 6, 2, 0, 0)
-TowerTabButton.Size = UDim2.new(1 / 6, -4, 1, 0)
+DungeonTabButton.Size = UDim2.new(0.25, -4, 1, 0)
 local GroceryTabButton = CreateButton(UtilityNavigation, "GROCERY")
-GroceryTabButton.Position = UDim2.new(2 / 6, 4, 0, 0)
-GroceryTabButton.Size = UDim2.new(1 / 6, -4, 1, 0)
+GroceryTabButton.Position = UDim2.new(0.25, 2, 0, 0)
+GroceryTabButton.Size = UDim2.new(0.25, -4, 1, 0)
 local SeasonTabButton = CreateButton(UtilityNavigation, "SEASON")
-SeasonTabButton.Position = UDim2.new(3 / 6, 6, 0, 0)
-SeasonTabButton.Size = UDim2.new(1 / 6, -4, 1, 0)
-local AutoSellTabButton = CreateButton(UtilityNavigation, "SELL")
-AutoSellTabButton.Position = UDim2.new(4 / 6, 8, 0, 0)
-AutoSellTabButton.Size = UDim2.new(1 / 6, -4, 1, 0)
-local PetExpeditionTabButton = CreateButton(UtilityNavigation, "PETS")
-PetExpeditionTabButton.Position = UDim2.new(5 / 6, 10, 0, 0)
-PetExpeditionTabButton.Size = UDim2.new(1 / 6, -10, 1, 0)
+SeasonTabButton.Position = UDim2.new(0.5, 4, 0, 0)
+SeasonTabButton.Size = UDim2.new(0.25, -4, 1, 0)
+local AutoSellTabButton = CreateButton(UtilityNavigation, "AUTO SELL")
+AutoSellTabButton.Position = UDim2.new(0.75, 6, 0, 0)
+AutoSellTabButton.Size = UDim2.new(0.25, -6, 1, 0)
 
 local UtilityPages = Instance.new("Frame")
 UtilityPages.Position = UDim2.fromOffset(0, 124)
@@ -7587,212 +6134,6 @@ DungeonPage.Name = "DungeonPage"
 DungeonPage.Size = UDim2.fromScale(1, 1)
 DungeonPage.BackgroundTransparency = 1
 DungeonPage.Parent = UtilityPages
-
-local TowerPage = Instance.new("ScrollingFrame")
-TowerPage.Name = "TowerPage"
-TowerPage.Size = UDim2.fromScale(1, 1)
-TowerPage.BackgroundTransparency = 1
-TowerPage.BorderSizePixel = 0
-TowerPage.CanvasSize = UDim2.fromOffset(0, 465)
-TowerPage.ScrollBarThickness = 3
-TowerPage.ScrollBarImageColor3 = Theme.Accent
-TowerPage.Visible = false
-TowerPage.Parent = UtilityPages
-
-local AutoJoinEndlessTowerToggle = CreateToggleRow(TowerPage, "Auto Join Endless Tower", function()
-    return _G.AutoJoinEndlessTower
-end, function(Value)
-    _G.AutoJoinEndlessTower = Value
-    AutoEndlessTower.LastAttemptAt = -math.huge
-    AutoEndlessTower.SetStatus(Value and "WAITING LOBBY" or "OFF")
-    SaveConfig()
-end)
-AutoJoinEndlessTowerToggle.Name = "AutoJoinEndlessTowerToggle"
-AutoJoinEndlessTowerToggle.Size = UDim2.new(1, 0, 0, 34)
-
-local EndlessStartingRoundLabel = CreateText(TowerPage, "Starting Round", 11, Theme.Muted)
-EndlessStartingRoundLabel.Position = UDim2.fromOffset(0, 42)
-EndlessStartingRoundLabel.Size = UDim2.new(1, 0, 0, 18)
-local EndlessStartingRoundDropdown, EndlessStartingRoundOptions = CreateSelectorDropdown(TowerPage,
-    "EndlessStartingRound", 62)
-
-local EndlessPlayerCountLabel = CreateText(TowerPage, "Player Count", 11, Theme.Muted)
-EndlessPlayerCountLabel.Position = UDim2.fromOffset(0, 108)
-EndlessPlayerCountLabel.Size = UDim2.new(1, 0, 0, 18)
-local EndlessPlayerCountDropdown, EndlessPlayerCountOptions = CreateSelectorDropdown(TowerPage,
-    "EndlessPlayerCount", 128, true)
-
-local EndlessExtraWeaponLabel = CreateText(TowerPage, "Extra Weapon", 11, Theme.Muted)
-EndlessExtraWeaponLabel.Position = UDim2.fromOffset(0, 174)
-EndlessExtraWeaponLabel.Size = UDim2.new(1, 0, 0, 18)
-local EndlessExtraWeaponDropdown, EndlessExtraWeaponOptions = CreateSelectorDropdown(TowerPage,
-    "EndlessExtraWeapon", 194, true)
-
-local EndlessStatusLabel = CreateText(TowerPage, "STATUS: OFF", 11, Theme.Muted)
-EndlessStatusLabel.Name = "EndlessStatusLabel"
-EndlessStatusLabel.Position = UDim2.fromOffset(0, 240)
-EndlessStatusLabel.Size = UDim2.new(1, 0, 0, 76)
-EndlessStatusLabel.TextWrapped = true
-
-EndlessStartingRoundDropdown.Activated:Connect(function()
-    EndlessPlayerCountOptions.Visible = false
-    EndlessExtraWeaponOptions.Visible = false
-    EndlessStartingRoundOptions.Visible = not EndlessStartingRoundOptions.Visible
-end)
-EndlessPlayerCountDropdown.Activated:Connect(function()
-    EndlessStartingRoundOptions.Visible = false
-    EndlessExtraWeaponOptions.Visible = false
-    EndlessPlayerCountOptions.Visible = not EndlessPlayerCountOptions.Visible
-end)
-EndlessExtraWeaponDropdown.Activated:Connect(function()
-    EndlessStartingRoundOptions.Visible = false
-    EndlessPlayerCountOptions.Visible = false
-    EndlessExtraWeaponOptions.Visible = not EndlessExtraWeaponOptions.Visible
-end)
-
-AutoEndlessCard.PickToggle = CreateToggleRow(TowerPage, "Auto Pick Offensive Card", function()
-    return AutoEndlessCard.Enabled
-end, function(Value)
-    AutoEndlessCard.Enabled = Value
-    AutoEndlessCard.Generation = AutoEndlessCard.Generation + 1
-    AutoEndlessCard.Pending = false
-    AutoEndlessCard.WaitingUnlock = false
-    AutoEndlessCard.LastSignature = nil
-    AutoEndlessCard.SetStatus(Value and "WAIT CARDS" or "OFF")
-    SaveConfig()
-end)
-AutoEndlessCard.PickToggle.Name = "AutoPickEndlessCardToggle"
-AutoEndlessCard.PickToggle.Position = UDim2.fromOffset(0, 322)
-AutoEndlessCard.PickToggle.Size = UDim2.new(1, -6, 0, 34)
-
-AutoEndlessCard.UnlockToggle = CreateToggleRow(TowerPage, "Unlock Paid Offensive Card", function()
-    return AutoEndlessCard.UnlockPaid
-end, function(Value)
-    AutoEndlessCard.UnlockPaid = Value
-    SaveConfig()
-end)
-AutoEndlessCard.UnlockToggle.Name = "AutoUnlockEndlessPaidCardToggle"
-AutoEndlessCard.UnlockToggle.Position = UDim2.fromOffset(0, 362)
-AutoEndlessCard.UnlockToggle.Size = UDim2.new(1, -6, 0, 34)
-
-AutoEndlessCard.ReserveLabel = CreateText(TowerPage, "Minimum Gold Reserve", 11, Theme.Muted)
-AutoEndlessCard.ReserveLabel.Position = UDim2.fromOffset(0, 402)
-AutoEndlessCard.ReserveLabel.Size = UDim2.new(1, -6, 0, 18)
-AutoEndlessCard.ReserveInput = Instance.new("TextBox")
-AutoEndlessCard.ReserveInput.Name = "EndlessCardMinGoldReserveInput"
-AutoEndlessCard.ReserveInput.Position = UDim2.fromOffset(0, 422)
-AutoEndlessCard.ReserveInput.Size = UDim2.new(1, -6, 0, 32)
-AutoEndlessCard.ReserveInput.BackgroundColor3 = Theme.Surface
-AutoEndlessCard.ReserveInput.BorderSizePixel = 0
-AutoEndlessCard.ReserveInput.ClearTextOnFocus = false
-AutoEndlessCard.ReserveInput.Font = Enum.Font.Gotham
-AutoEndlessCard.ReserveInput.PlaceholderText = "0"
-AutoEndlessCard.ReserveInput.Text = tostring(AutoEndlessCard.MinGoldReserve)
-AutoEndlessCard.ReserveInput.TextColor3 = Theme.Text
-AutoEndlessCard.ReserveInput.TextSize = 12
-AutoEndlessCard.ReserveInput.Parent = TowerPage
-AddCorner(AutoEndlessCard.ReserveInput, 6)
-AddStroke(AutoEndlessCard.ReserveInput)
-AutoEndlessCard.ReserveInput.FocusLost:Connect(function()
-    AutoEndlessCard.MinGoldReserve = math.max(0, math.floor(tonumber(AutoEndlessCard.ReserveInput.Text) or 0))
-    AutoEndlessCard.ReserveInput.Text = tostring(AutoEndlessCard.MinGoldReserve)
-    SaveConfig()
-end)
-
-local PetExpeditionPage = Instance.new("Frame")
-PetExpeditionPage.Name = "PetExpeditionPage"
-PetExpeditionPage.Size = UDim2.fromScale(1, 1)
-PetExpeditionPage.BackgroundTransparency = 1
-PetExpeditionPage.Visible = false
-PetExpeditionPage.Parent = UtilityPages
-
-local AutoPetExpeditionToggle = CreateToggleRow(PetExpeditionPage, "Auto Expedition", function()
-    return _G.AutoPetExpedition
-end, function(Value)
-    AutoPetExpedition.SetEnabled(Value, nil)
-end)
-AutoPetExpeditionToggle.Name = "AutoPetExpeditionToggle"
-AutoPetExpeditionToggle.Size = UDim2.new(1, 0, 0, 34)
-
-local AutoClaimPetExpeditionToggle = CreateToggleRow(PetExpeditionPage, "Auto Claim Expedition", function()
-    return _G.AutoClaimPetExpedition
-end, function(Value)
-    AutoPetExpedition.SetEnabled(nil, Value)
-end)
-AutoClaimPetExpeditionToggle.Name = "AutoClaimPetExpeditionToggle"
-AutoClaimPetExpeditionToggle.Position = UDim2.fromOffset(0, 40)
-AutoClaimPetExpeditionToggle.Size = UDim2.new(1, 0, 0, 34)
-
-local PetExpeditionSlotOrderLabel = CreateText(PetExpeditionPage, "Slot Order", 11, Theme.Muted)
-PetExpeditionSlotOrderLabel.Position = UDim2.fromOffset(0, 82)
-PetExpeditionSlotOrderLabel.Size = UDim2.new(1, 0, 0, 18)
-
-local PetExpeditionSlotOrderInput = Instance.new("TextBox")
-PetExpeditionSlotOrderInput.Name = "PetExpeditionSlotOrderInput"
-PetExpeditionSlotOrderInput.Position = UDim2.fromOffset(0, 102)
-PetExpeditionSlotOrderInput.Size = UDim2.new(1, 0, 0, 32)
-PetExpeditionSlotOrderInput.BackgroundColor3 = Theme.Surface
-PetExpeditionSlotOrderInput.BorderSizePixel = 0
-PetExpeditionSlotOrderInput.ClearTextOnFocus = false
-PetExpeditionSlotOrderInput.Font = Enum.Font.Gotham
-PetExpeditionSlotOrderInput.PlaceholderText = "2,3,4"
-PetExpeditionSlotOrderInput.PlaceholderColor3 = Theme.Muted
-PetExpeditionSlotOrderInput.Text = AutoPetExpedition.FormatSlotOrder(AutoPetExpedition.SlotOrder)
-PetExpeditionSlotOrderInput.TextColor3 = Theme.Text
-PetExpeditionSlotOrderInput.TextSize = 12
-PetExpeditionSlotOrderInput.Parent = PetExpeditionPage
-AddCorner(PetExpeditionSlotOrderInput, 6)
-AddStroke(PetExpeditionSlotOrderInput)
-
-local PetExpeditionChanceLabel = CreateText(PetExpeditionPage, "DAILY CHANCES: --/--", 11, Theme.Text)
-PetExpeditionChanceLabel.Name = "PetExpeditionChanceLabel"
-PetExpeditionChanceLabel.Position = UDim2.fromOffset(0, 142)
-PetExpeditionChanceLabel.Size = UDim2.new(1, 0, 0, 22)
-
-local PetExpeditionStatusLabel = CreateText(PetExpeditionPage, "STATUS: OFF", 11, Theme.Muted)
-PetExpeditionStatusLabel.Name = "PetExpeditionStatusLabel"
-PetExpeditionStatusLabel.Position = UDim2.fromOffset(0, 168)
-PetExpeditionStatusLabel.Size = UDim2.new(1, 0, 0, 44)
-PetExpeditionStatusLabel.TextWrapped = true
-
-local AutoPetHatchToggle = CreateToggleRow(PetExpeditionPage, "Auto Hatch Egg", function()
-    return _G.AutoPetHatch
-end, function(Value)
-    AutoPetHatch.SetEnabled(Value)
-end)
-AutoPetHatchToggle.Name = "AutoPetHatchToggle"
-AutoPetHatchToggle.Position = UDim2.fromOffset(0, 220)
-AutoPetHatchToggle.Size = UDim2.new(1, 0, 0, 34)
-
-local PetHatchStatusLabel = CreateText(PetExpeditionPage, "HATCH: OFF", 11, Theme.Muted)
-PetHatchStatusLabel.Name = "PetHatchStatusLabel"
-PetHatchStatusLabel.Position = UDim2.fromOffset(0, 260)
-PetHatchStatusLabel.Size = UDim2.new(1, 0, 0, 44)
-PetHatchStatusLabel.TextWrapped = true
-
-local function RefreshPetExpeditionUI()
-    if not PetExpeditionSlotOrderInput:IsFocused() then
-        PetExpeditionSlotOrderInput.Text = AutoPetExpedition.FormatSlotOrder(AutoPetExpedition.SlotOrder)
-    end
-    local Success, Remaining, Limit = pcall(function()
-        local PetsExpeditionUtil = AutoPetExpedition.GetModules()
-        return AutoPetExpedition.GetRemaining(PetsExpeditionUtil)
-    end)
-    PetExpeditionChanceLabel.Text = Success and
-        ("DAILY CHANCES: " .. tostring(Remaining) .. "/" .. tostring(Limit)) or "DAILY CHANCES: UNAVAILABLE"
-    PetExpeditionStatusLabel.Text = "STATUS: " .. tostring(AutoPetExpedition.Status)
-    PetHatchStatusLabel.Text = "HATCH: " .. tostring(AutoPetHatch.Status)
-end
-
-PetExpeditionSlotOrderInput.FocusLost:Connect(function()
-    AutoPetExpedition.SlotOrder = AutoPetExpedition.NormalizeSlotOrder(PetExpeditionSlotOrderInput.Text,
-        AutoPetExpedition.SlotCount)
-    SaveConfig()
-    RefreshPetExpeditionUI()
-end)
-AutoPetExpedition.Refresh = RefreshPetExpeditionUI
-AutoPetHatch.Refresh = RefreshPetExpeditionUI
-RefreshPetExpeditionUI()
 
 local DungeonLabel = CreateText(DungeonPage, "Dungeon", 11, Theme.Muted)
 DungeonLabel.Size = UDim2.new(1, 0, 0, 20)
@@ -8100,92 +6441,6 @@ local function AddSelectorOption(Options, Text, Unlocked, OnSelect)
     end)
 end
 
-local function FormatEndlessStartingRound(StartingRound)
-    if StartingRound == 0 then
-        return "Highest Unlocked"
-    end
-    return tostring(StartingRound) .. "-" .. tostring(math.min(StartingRound + 4, 200))
-end
-
-local function BuildEndlessTowerPage()
-    EndlessStartingRoundOptions.Visible = false
-    EndlessPlayerCountOptions.Visible = false
-    EndlessExtraWeaponOptions.Visible = false
-    ClearSelectorOptions(EndlessStartingRoundOptions)
-    ClearSelectorOptions(EndlessPlayerCountOptions)
-    ClearSelectorOptions(EndlessExtraWeaponOptions)
-
-    local HighestStartingRound, MaxRound = AutoEndlessTower.GetHighestStartingRound()
-    AddSelectorOption(EndlessStartingRoundOptions, "Highest Unlocked", true, function()
-        AutoEndlessTower.StartingRound = 0
-        AutoEndlessTower.LastAttemptAt = -math.huge
-        SaveConfig()
-        BuildEndlessTowerPage()
-    end)
-    for StartingRound = 1, 196, 5 do
-        local SelectedRound = StartingRound
-        AddSelectorOption(EndlessStartingRoundOptions, FormatEndlessStartingRound(SelectedRound),
-            SelectedRound <= HighestStartingRound, function()
-                AutoEndlessTower.StartingRound = SelectedRound
-                AutoEndlessTower.LastAttemptAt = -math.huge
-                SaveConfig()
-                BuildEndlessTowerPage()
-            end)
-    end
-    EndlessStartingRoundOptions.Size = UDim2.new(1, 0, 0, 180)
-    EndlessStartingRoundDropdown.Text = "  " .. FormatEndlessStartingRound(AutoEndlessTower.StartingRound) ..
-                                              "  \226\150\188"
-
-    for PlayerCount = 1, 4 do
-        local SelectedPlayerCount = PlayerCount
-        AddSelectorOption(EndlessPlayerCountOptions, tostring(SelectedPlayerCount), true, function()
-            AutoEndlessTower.MaxPlayers = SelectedPlayerCount
-            AutoEndlessTower.LastAttemptAt = -math.huge
-            SaveConfig()
-            BuildEndlessTowerPage()
-        end)
-    end
-    EndlessPlayerCountOptions.Size = UDim2.new(1, 0, 0, 138)
-    EndlessPlayerCountDropdown.Text = "  " .. tostring(AutoEndlessTower.MaxPlayers) .. "  \226\150\188"
-
-    local WeaponOptions = AutoEndlessExtraWeapon.GetOptions()
-    local SelectedWeaponLabel = "Highest Damage (Auto)"
-    local SelectedWeaponFound = AutoEndlessExtraWeapon.SelectedUUID == ""
-    AddSelectorOption(EndlessExtraWeaponOptions, "Highest Damage (Auto)", true, function()
-        AutoEndlessExtraWeapon.SelectedUUID = ""
-        AutoEndlessExtraWeapon.ResetRequest()
-        SaveConfig()
-        BuildEndlessTowerPage()
-    end)
-    for _, WeaponOption in ipairs(WeaponOptions) do
-        local Option = WeaponOption
-        if Option.UUID == AutoEndlessExtraWeapon.SelectedUUID then
-            SelectedWeaponLabel = Option.Label
-            SelectedWeaponFound = true
-        end
-        AddSelectorOption(EndlessExtraWeaponOptions, Option.Label, true, function()
-            AutoEndlessExtraWeapon.SelectedUUID = Option.UUID
-            AutoEndlessExtraWeapon.ResetRequest()
-            SaveConfig()
-            BuildEndlessTowerPage()
-        end)
-    end
-    if not SelectedWeaponFound then
-        SelectedWeaponLabel = "Highest Damage (Auto) [fallback]"
-    end
-    EndlessExtraWeaponOptions.Size = UDim2.new(1, 0, 0, math.min(180, 10 + (#WeaponOptions + 1) * 34))
-    EndlessExtraWeaponDropdown.Text = "  " .. SelectedWeaponLabel .. "  \226\150\188"
-
-    local ResolvedStartingRound = AutoEndlessTower.ResolveStartingRound()
-    EndlessStatusLabel.Text = "STATUS: " .. tostring(AutoEndlessTower.Status) .. "\nHIGHEST ROUND: " ..
-                                  tostring(MaxRound) .. " · NEXT START: " .. tostring(ResolvedStartingRound) ..
-                                  "\nWEAPON: " .. tostring(AutoEndlessExtraWeapon.Status) .. "\nCARD: " ..
-                                  tostring(AutoEndlessCard.Status)
-end
-AutoEndlessTower.Refresh = BuildEndlessTowerPage
-AutoEndlessExtraWeapon.Refresh = BuildEndlessTowerPage
-AutoEndlessExtraWeapon.Connect()
-
 local function FindSelectedDifficultyName()
     for _, Entry in ipairs(DungeonCatalog.GetDifficultyCatalog(AutoStartWorldId)) do
         if Entry.Level == AutoStartDifficulty then
@@ -8234,42 +6489,26 @@ end
 local function SetUtilityPage(Name)
     DungeonOptions.Visible = false
     DifficultyOptions.Visible = false
-    EndlessStartingRoundOptions.Visible = false
-    EndlessPlayerCountOptions.Visible = false
-    EndlessExtraWeaponOptions.Visible = false
     AutoPotionOverlay.Visible = false
     DungeonPage.Visible = Name == "Dungeon"
-    TowerPage.Visible = Name == "Tower"
     GroceryPage.Page.Visible = Name == "Grocery"
     SeasonPage.Page.Visible = Name == "Season"
     AutoSellPage.Page.Visible = Name == "AutoSell"
-    PetExpeditionPage.Visible = Name == "Pets"
     DungeonTabButton.BackgroundColor3 = Name == "Dungeon" and Theme.Accent or Theme.Surface
-    TowerTabButton.BackgroundColor3 = Name == "Tower" and Theme.Accent or Theme.Surface
     GroceryTabButton.BackgroundColor3 = Name == "Grocery" and Theme.Accent or Theme.Surface
     SeasonTabButton.BackgroundColor3 = Name == "Season" and Theme.Accent or Theme.Surface
     AutoSellTabButton.BackgroundColor3 = Name == "AutoSell" and Theme.Accent or Theme.Surface
-    PetExpeditionTabButton.BackgroundColor3 = Name == "Pets" and Theme.Accent or Theme.Surface
     if Name == "Dungeon" then
         pcall(BuildDungeonPage, true)
-    elseif Name == "Tower" then
-        pcall(BuildEndlessTowerPage)
-    elseif Name == "Pets" then
-        RefreshPetExpeditionUI()
     end
 end
 DungeonTabButton.Activated:Connect(function() SetUtilityPage("Dungeon") end)
-TowerTabButton.Activated:Connect(function() SetUtilityPage("Tower") end)
 GroceryTabButton.Activated:Connect(function() SetUtilityPage("Grocery") end)
 SeasonTabButton.Activated:Connect(function() SetUtilityPage("Season") end)
 AutoSellTabButton.Activated:Connect(function() SetUtilityPage("AutoSell") end)
-PetExpeditionTabButton.Activated:Connect(function() SetUtilityPage("Pets") end)
 CloseMenuDropdowns = function()
     DungeonOptions.Visible = false
     DifficultyOptions.Visible = false
-    EndlessStartingRoundOptions.Visible = false
-    EndlessPlayerCountOptions.Visible = false
-    EndlessExtraWeaponOptions.Visible = false
     AutoPotionOverlay.Visible = false
     AutoForgePage.Close()
     ForgeTargetsPage.CloseDropdowns()
@@ -8532,4 +6771,3 @@ task.spawn(function()
         warn("[Bugon V6] menu error: " .. tostring(ErrorMessage))
     end
 end)
-
